@@ -1,0 +1,944 @@
+"""Settings window. Layout inspired by VALORANT's crosshair menu, our own design."""
+import base64
+import copy
+import json
+import os
+import re
+import sys
+import time
+import winreg
+
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtWidgets import (
+    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
+    QDialog, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMessageBox, QPushButton,
+    QScrollArea, QSlider, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+
+import config
+import library
+import overlay
+from editor import EditorTab
+from preview import PreviewPanel, render_image
+from share_code import FIELDS, ShareCodeError, export_code, import_code
+from ui.i18n import LANGUAGES, tr
+
+SHAPES = [("cross", "Cross"), ("t", "T-Shape"), ("dot", "Dot only"), ("circle", "Circle"),
+          ("square", "Square"), ("chevron", "Chevron (^)"), ("x", "X")]
+PRESETS = ["FFFFFF", "00FF00", "7FFF00", "DFFF00", "FFFF00", "00FFFF", "FF00FF", "FF0000"]
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_NAME = "Nullpoint"
+OLD_RUN_NAME = "CrosshairOverlay"
+
+
+def startup_command():
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
+    exe = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    return f'"{exe}" "{os.path.abspath(sys.argv[0])}"'
+
+
+def asset(name):
+    """assets/ next to the crosshair/ folder, or inside the PyInstaller bundle."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, "assets", name)
+
+
+def app_icon():
+    path = asset("nullpoint.ico")
+    return QIcon(path) if os.path.exists(path) else QIcon()
+
+
+def migrate_startup():
+    """Rename the old 'Start with Windows' entry so it launches Nullpoint."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
+            winreg.QueryValueEx(k, OLD_RUN_NAME)
+            winreg.DeleteValue(k, OLD_RUN_NAME)
+            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, startup_command())
+    except OSError:
+        pass  # no old entry
+
+
+def startup_enabled():
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, APP_NAME)
+            return True
+    except OSError:
+        return False
+
+
+def set_startup(on):
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        if on:
+            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, startup_command())
+        else:
+            try:
+                winreg.DeleteValue(k, APP_NAME)
+            except FileNotFoundError:
+                pass
+
+
+def screens():
+    """Monitors numbered left-to-right, top-to-bottom (Monitor 1, 2, ...)."""
+    return sorted(QGuiApplication.screens(), key=lambda sc: (sc.geometry().x(), sc.geometry().y()))
+
+
+def field_range(sec, key):
+    for _, (s, fields) in FIELDS.items():
+        if s == sec:
+            for name, _t, lo, hi in fields:
+                if name == key:
+                    return lo, hi
+    raise KeyError((sec, key))
+
+
+class SettingsWindow(QWidget):
+    def __init__(self, app):
+        """app: main.App (cfg, ov, on_change(kind) with kind in crosshair/profile/hotkeys/general, native)."""
+        super().__init__()
+        self.app = app
+        self.cfg, self.ov, self.on_change = app.cfg, app.ov, app.on_change
+        self.loaders = []
+        self.loading = False
+        self.setWindowTitle(tr("Nullpoint - Settings"))
+        self.setWindowIcon(app_icon())
+        self.resize(940, 620)
+
+        root = QHBoxLayout(self)
+        self.left = QWidget()
+        self.left.setFixedWidth(340)
+        left = QVBoxLayout(self.left)
+        left.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self.left)
+        top = QHBoxLayout()
+        self.profile_box = QComboBox()
+        self.profile_box.currentTextChanged.connect(self._pick_profile)
+        self.mode_box = QComboBox()
+        self.mode_box.addItems([tr("Line crosshair"), tr("Image")])
+        self.mode_box.currentIndexChanged.connect(self._pick_mode)
+        top.addWidget(QLabel(tr("Profile")))
+        top.addWidget(self.profile_box, 1)
+        top.addWidget(QLabel(tr("Mode")))
+        top.addWidget(self.mode_box, 1)
+        left.addLayout(top)
+
+        # Same draw call as the overlay window, on the same settings object.
+        self.preview = PreviewPanel(lambda: (render_image(self.ov.draw, self.ov.c), self.ov.c), tr)
+        self.ov.frame.connect(lambda: self.preview.update() if self.isVisible() else None)  # rainbow / GIF
+        left.addWidget(self.preview, 1)
+        row = QHBoxLayout()
+        for text, back in (("Undo", True), ("Redo", False)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(lambda _=False, b_=back: self.undo_redo(b_))
+            row.addWidget(b)
+        left.addLayout(row)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        left.addWidget(self.status)
+        self.undo_stack, self.redo_stack = [], []
+        self._last_record = (None, 0.0)
+        for seq, back in ((QKeySequence.Undo, True), (QKeySequence.Redo, False), ("Ctrl+Y", False)):
+            QShortcut(QKeySequence(seq), self, activated=lambda b_=back: self.undo_redo(b_))
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.scroll(self._crosshair_tab()), tr("Crosshair"))
+        self.tabs.addTab(self.scroll(self._image_tab()), tr("Image"))
+        self.editor = EditorTab(self.apply_image, tr)
+        self.tabs.addTab(self.editor, tr("Editor"))
+        self.library_page = self._library_tab()
+        self.tabs.addTab(self.library_page, tr("Library"))
+        self.tabs.addTab(self.scroll(self._games_tab()), tr("Games & Display").replace("&", "&&"))
+        self.tabs.addTab(self.scroll(self._share_tab()), tr("Share"))
+        self.tabs.addTab(self.scroll(self._app_tab()), tr("App Settings"))
+        # The editor has its own 1x/4x preview and needs the room.
+        self.tabs.currentChanged.connect(lambda i: self.left.setVisible(self.tabs.widget(i) is not self.editor))
+        self.tabs.currentChanged.connect(
+            lambda i: self.load_library() if self.tabs.widget(i) is self.library_page else None)
+        root.addWidget(self.tabs, 1)
+        self.refresh()
+
+    @staticmethod
+    def scroll(page):
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sc.setWidget(page)
+        return sc
+
+    # ---------- data access ----------
+    def profile(self):
+        return self.cfg["profiles"][self.cfg["active_profile"]]
+
+    def target(self, sec):
+        p = self.profile()
+        if sec == "profile":
+            return p
+        if sec == "stretch":
+            return p["stretch"]
+        if sec == "cross":
+            return p["crosshair"]
+        return p["crosshair"][sec]
+
+    # ---------- undo / redo (whole active profile snapshots) ----------
+    def record(self, key=None):
+        """Snapshot before a change. Rapid changes to the same control (a slider drag, typing) = one step."""
+        now = time.monotonic()
+        last_key, last_t = self._last_record
+        self._last_record = (key, now)
+        if key is not None and key == last_key and now - last_t < 0.8:
+            return
+        self.undo_stack.append((self.cfg["active_profile"], copy.deepcopy(self.profile())))
+        del self.undo_stack[:-50]
+        self.redo_stack.clear()
+
+    def undo_redo(self, back):
+        if self.tabs.currentWidget() is self.editor:  # the editor keeps its own per-stroke history
+            self.editor.canvas.step(back)
+            return
+        src, dst = (self.undo_stack, self.redo_stack) if back else (self.redo_stack, self.undo_stack)
+        if not src:
+            return
+        name, prof = src.pop()
+        if name in self.cfg["profiles"]:
+            dst.append((name, copy.deepcopy(self.cfg["profiles"][name])))
+            self.cfg["profiles"][name] = prof
+            self.cfg["active_profile"] = name
+            self._last_record = (None, 0.0)
+            self.on_change("profile")
+            self.refresh()
+
+    def set_value(self, sec, key, val):
+        if self.loading or self.target(sec)[key] == val:
+            return
+        self.record((sec, key))
+        self.target(sec)[key] = val
+        self.on_change("crosshair")
+        self.preview.update()
+        if sec in ("stretch", "profile"):
+            self.update_display_info()
+
+    def say(self, text, error=False):
+        self.status.setStyleSheet("color: #d33;" if error else "color: #2a2;")
+        self.status.setText(text)
+
+    # ---------- widgets bound to settings ----------
+    def add_slider(self, form, label, sec, key, lo=None, hi=None, dec=0):
+        if lo is None:
+            lo, hi = field_range(sec, key)
+        scale = 10 ** dec
+        s = QSlider(Qt.Horizontal)
+        s.setRange(round(lo * scale), round(hi * scale))
+        n = QDoubleSpinBox() if dec else QSpinBox()
+        n.setRange(lo, hi)
+        if dec:
+            n.setDecimals(dec)
+            n.setSingleStep(1 / scale)
+        n.setButtonSymbols(QSpinBox.NoButtons)
+        n.setAlignment(Qt.AlignRight)
+        n.setFixedWidth(52)
+
+        def from_spin(v):
+            s.blockSignals(True)
+            s.setValue(round(v * scale))
+            s.blockSignals(False)
+            self.set_value(sec, key, round(v, dec) if dec else int(v))
+
+        s.valueChanged.connect(lambda v: n.setValue(v / scale if dec else v))
+        n.valueChanged.connect(from_spin)
+        self.loaders.append(lambda: n.setValue(self.target(sec)[key]))
+        row = QHBoxLayout()
+        row.addWidget(s, 1)
+        row.addWidget(n)
+        form.addRow(tr(label), row)
+
+    def add_check(self, form, label, sec, key):
+        c = QCheckBox()
+        c.toggled.connect(lambda v: self.set_value(sec, key, v))
+        self.loaders.append(lambda: c.setChecked(self.target(sec)[key]))
+        form.addRow(tr(label), c)
+        return c
+
+    def add_combo(self, form, label, sec, key, items):
+        """items: [(stored value, English label)]."""
+        box = QComboBox()
+        for val, text in items:
+            box.addItem(tr(text), val)
+        box.currentIndexChanged.connect(lambda i: self.set_value(sec, key, box.itemData(i)))
+        self.loaders.append(lambda: box.setCurrentIndex(max(0, box.findData(self.target(sec)[key]))))
+        form.addRow(tr(label), box)
+        return box
+
+    def add_hex(self, form, label, sec, key):
+        ed = QLineEdit()
+        ed.setMaxLength(7)
+        ed.setFixedWidth(80)
+
+        def changed(text):
+            h = text.strip().lstrip("#").upper()
+            if re.fullmatch(r"[0-9A-F]{6}", h):
+                self.set_value(sec, key, h)
+
+        ed.textEdited.connect(changed)
+        self.loaders.append(lambda: ed.setText("#" + self.target(sec)[key]))
+        form.addRow(tr(label), ed)
+        return ed
+
+    def _split_colors(self, same):
+        """Turning 'same color' off starts every part from the current main color."""
+        if not same and not self.loading:
+            self.record()
+            cols = self.target("colors")
+            cols.update(lines=self.target("cross")["color"], dot=self.target("cross")["color"],
+                        ring=self.target("cross")["color"])
+            self.on_change("crosshair")
+            self.refresh()
+
+    def group(self, layout, title, sections):
+        """Group box with a per-section 'Reset to default' button."""
+        g = QGroupBox(tr(title))
+        form = QFormLayout(g)
+        layout.addWidget(g)
+
+        def reset():
+            self.record()
+            for sec in sections:
+                if sec == "color":
+                    self.target("cross")["color"] = config.DEFAULT_CROSSHAIR["color"]
+                elif sec == "offset":
+                    self.target("profile").update(offset_x=0, offset_y=0)
+                elif sec == "display":
+                    self.target("profile").update(monitor=0, stretch=copy.deepcopy(config.DEFAULT_PROFILE["stretch"]))
+                else:
+                    self.target("cross")[sec] = copy.deepcopy(config.DEFAULT_CROSSHAIR[sec])
+            self.on_change("crosshair")
+            self.refresh()
+
+        btn = QPushButton(tr("Reset to default"))
+        btn.clicked.connect(reset)
+        return g, form, btn
+
+    def _crosshair_tab(self):
+        page = QWidget()
+        grid = QGridLayout(page)
+        lay, lay2 = QVBoxLayout(), QVBoxLayout()
+        grid.addLayout(lay, 0, 0, Qt.AlignTop)
+        grid.addLayout(lay2, 0, 1, Qt.AlignTop)
+
+        g, f, reset = self.group(lay, "Shape", ["shape", "rot"])
+        self.add_combo(f, "Shape", "cross", "shape", SHAPES)
+        self.add_slider(f, "Line rotation", "cross", "rot", 0, 90)
+        f.addRow(reset)
+
+        g, f, reset = self.group(lay, "Color", ["color", "colors", "rainbow"])
+        swatches = QHBoxLayout()
+        for hexc in PRESETS:
+            b = QPushButton()
+            b.setFixedSize(22, 22)
+            b.setStyleSheet(f"background:#{hexc}; border:1px solid #555;")
+            b.clicked.connect(lambda _=False, h=hexc: self._set_color(h))
+            swatches.addWidget(b)
+        self.hex_edit = QLineEdit()
+        self.hex_edit.setMaxLength(7)
+        self.hex_edit.setFixedWidth(80)
+        self.hex_edit.setPlaceholderText("#RRGGBB")
+        self.hex_edit.textEdited.connect(lambda t: self._set_color(t, quiet=True))  # live while typing
+        self.hex_edit.editingFinished.connect(lambda: self._set_color(self.hex_edit.text()))
+        swatches.addWidget(self.hex_edit)
+        swatches.addStretch()
+        f.addRow(tr("Color"), swatches)
+        self.loaders.append(lambda: self.hex_edit.setText("#" + self.target("cross")["color"]))
+        same = self.add_check(f, "Use same color for all", "colors", "same")
+        part_rows = [self.add_hex(f, label, "colors", key) for key, label in (
+            ("lines", "Lines color"), ("dot", "Center dot color"), ("ring", "Ring color"), ("outline", "Outline color"))]
+        same.toggled.connect(lambda on: [f.setRowVisible(w, not on) for w in part_rows])
+        same.toggled.connect(self._split_colors)
+        self.loaders.append(lambda: [f.setRowVisible(w, not self.target("colors")["same"]) for w in part_rows])
+        self.add_combo(f, "Color mode", "rainbow", "on", [(False, "Static"), (True, "Rainbow")])
+        self.add_slider(f, "Rainbow speed", "rainbow", "speed")
+        self.add_slider(f, "Rainbow saturation", "rainbow", "sat", dec=2)
+        f.addRow(reset)
+
+        g, f, reset = self.group(lay, "Outline", ["outline"])
+        self.add_check(f, "Outline", "outline", "on")
+        self.add_slider(f, "Outline thickness", "outline", "thick")
+        self.add_slider(f, "Outline opacity", "outline", "alpha", dec=2)
+        f.addRow(reset)
+
+        g, f, reset = self.group(lay2, "Center Dot", ["dot"])
+        self.add_check(f, "Show", "dot", "on")
+        self.add_slider(f, "Size", "dot", "size")
+        self.add_slider(f, "Opacity", "dot", "alpha", dec=2)
+        f.addRow(reset)
+
+        for sec, title in (("inner", "Inner Lines"), ("outer", "Outer Lines")):
+            g, f, reset = self.group(lay2, title, [sec])
+            self.add_check(f, "Show", sec, "on")
+            self.add_slider(f, "Length", sec, "len")
+            self.add_slider(f, "Thickness", sec, "thick")
+            self.add_slider(f, "Gap", sec, "gap")
+            self.add_slider(f, "Opacity", sec, "alpha", dec=2)
+            self.add_check(f, "Separate vertical length", sec, "vsep")
+            self.add_slider(f, "Vertical length", sec, "vlen")
+            f.addRow(reset)
+
+        g, f, reset = self.group(lay, "Ring", ["ring"])
+        self.add_check(f, "Show ring", "ring", "on")
+        self.add_slider(f, "Radius", "ring", "radius")
+        self.add_slider(f, "Thickness", "ring", "thick")
+        self.add_slider(f, "Opacity", "ring", "alpha", dec=2)
+        self.add_slider(f, "Number of gaps", "ring", "gaps")
+        self.add_slider(f, "Gap size", "ring", "gapsize")
+        self.add_slider(f, "Gap rotation", "ring", "gaprot")
+        f.addRow(reset)
+    
+        return page
+
+    def _image_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel(tr("Used when Mode is set to Image.")))
+        g, f, reset = self.group(lay, "Image", ["png"])
+        row = QHBoxLayout()
+        self.png_label = QLabel()
+        self.png_label.setWordWrap(True)
+        b = QPushButton(tr("Browse..."))
+        b.clicked.connect(self._browse_png)
+        row.addWidget(self.png_label, 1)
+        row.addWidget(b)
+        f.addRow(tr("File"), row)
+        self.loaders.append(lambda: self.png_label.setText(
+            os.path.basename(self.profile()["png_path"]) or tr("(none)")))
+        self.add_slider(f, "Scale %", "png", "scale")
+        self.add_slider(f, "Opacity", "png", "alpha", dec=2)
+        rot = QComboBox()
+        rot.addItems(["0", "90", "180", "270"])
+        rot.currentTextChanged.connect(lambda t: self.set_value("png", "rot", int(t)))
+        self.loaders.append(lambda: rot.setCurrentText(str(self.target("png")["rot"])))
+        f.addRow(tr("Rotation"), rot)
+        self.add_check(f, "Pause animation (GIF)", "profile", "anim_paused")
+        f.addRow(reset)
+
+        lay.addStretch()
+        return page
+
+    def _games_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel(tr("When one of these programs is focused, its profile is used. "
+                                "Anything else uses the Default profile.")))
+        self.games_table = QTableWidget(0, 2)
+        self.games_table.setHorizontalHeaderLabels([tr("Process"), tr("Profile")])
+        self.games_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.games_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.games_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.games_table.setMinimumHeight(180)
+        lay.addWidget(self.games_table)
+        row = QHBoxLayout()
+        for text, fn in (("Browse .exe...", self._add_game_browse), ("Type name...", self._add_game_name),
+                         ("Remove", self._remove_game), ("Rename profile...", self._rename_profile)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        lay.addLayout(row)
+
+        g, f, reset = self.group(lay, "Display (this profile)", ["offset", "display"])
+        self.monitor_box = QComboBox()
+        self.monitor_box.currentIndexChanged.connect(
+            lambda i: None if self.loading or i < 0 else self.set_value("profile", "monitor", i))
+        self.loaders.append(self._load_monitors)
+        f.addRow(tr("Monitor"), self.monitor_box)
+        self.add_slider(f, "Offset X px", "profile", "offset_x", -50, 50)
+        self.add_slider(f, "Offset Y px", "profile", "offset_y", -50, 50)
+        self.add_check(f, "Stretched resolution", "stretch", "on")
+        self.add_slider(f, "In-game width", "stretch", "w", 640, 7680)
+        self.add_slider(f, "In-game height", "stretch", "h", 480, 4320)
+        self.add_slider(f, "Native width (0 = auto)", "stretch", "native_w", 0, 7680)
+        self.display_info = QLabel()
+        self.display_info.setObjectName("muted")
+        f.addRow(self.display_info)
+        f.addRow(reset)
+        lay.addStretch()
+        return page
+
+    def _load_monitors(self):
+        self.monitor_box.clear()
+        self.monitor_box.addItem(tr("Follow game window"))
+        for i, sc in enumerate(screens(), 1):
+            g = sc.geometry()
+            self.monitor_box.addItem(f"{tr('Monitor')} {i} ({g.width()}x{g.height()})")
+        self.monitor_box.setCurrentIndex(min(self.profile()["monitor"], self.monitor_box.count() - 1))
+
+    def update_display_info(self):
+        nw, nh = self.app.native
+        text = f"{tr('Native resolution')}: {nw}x{nh}"
+        if self.profile()["stretch"]["on"]:
+            text += f"  |  {tr('Horizontal scale')}: {self.app.stretch_factor():.3f}x"
+        self.display_info.setText(text)
+
+    def _share_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        g, f, reset = self.group(lay, "Share code", [])
+        reset.hide()
+        self.code_edit = QLineEdit()
+        self.code_edit.setReadOnly(True)
+        f.addRow(self.code_edit)
+        self.loaders.append(lambda: self.code_edit.setText(export_code(self.target("cross"))))
+        self.share_row = QHBoxLayout()
+        for text, fn in (("Copy Code", self._copy_code), ("Paste Code", self._paste_code)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            self.share_row.addWidget(b)
+        b = QPushButton(tr("Show QR"))
+        b.clicked.connect(self._show_qr)
+        self.share_row.addWidget(b)
+        f.addRow(self.share_row)
+
+        g, f, reset = self.group(lay, "Backup", [])
+        reset.hide()
+        f.addRow(QLabel(tr("One .json file with every profile, the library and all settings. "
+                           "Custom images are embedded, so the file works on another PC.")))
+        row = QHBoxLayout()
+        for text, fn in (("Export all...", self._export_all), ("Import...", self._import_all)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        f.addRow(row)
+        lay.addStretch()
+        return page
+
+    # ---------- library ----------
+    def _library_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel(tr("Click a crosshair to apply it to the current profile.")))
+        self.lib_list = QListWidget()
+        self.lib_list.setViewMode(QListWidget.IconMode)
+        self.lib_list.setIconSize(QSize(64, 64))
+        self.lib_list.setGridSize(QSize(110, 100))
+        self.lib_list.setResizeMode(QListWidget.Adjust)
+        self.lib_list.setMovement(QListWidget.Static)
+        self.lib_list.itemClicked.connect(lambda it: self._lib_apply())
+        lay.addWidget(self.lib_list, 1)
+        row = QHBoxLayout()
+        for text, fn in (("Save current to library", self._lib_save), ("Apply", self._lib_apply),
+                         ("Rename", self._lib_rename), ("Duplicate", self._lib_duplicate), ("Delete", self._lib_delete)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        lay.addLayout(row)
+        return page
+
+    @staticmethod
+    def thumbnail(cross, image=""):
+        """Same renderer as the overlay, scaled into a 64x64 icon with sharp pixels."""
+        pm = overlay.png_pixmap(image, cross["png"]) if cross["mode"] == "png" else None
+        c = overlay.extent(cross, pm)
+        img = render_image(lambda p, cc: overlay.render(p, cross, cc, pm), c)
+        icon = QImage(64, 64, QImage.Format_ARGB32_Premultiplied)
+        icon.fill(QColor("#2a2e35"))
+        z = max(1, 64 // img.width()) if img.width() <= 64 else 0
+        p = QPainter(icon)
+        if z:
+            p.drawImage((64 - img.width() * z) // 2, (64 - img.height() * z) // 2,
+                        img.scaled(img.width() * z, img.height() * z))
+        else:
+            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            p.drawImage(icon.rect(), img)
+        p.end()
+        return QIcon(QPixmap.fromImage(icon))
+
+    def load_library(self):
+        self.lib_entries = library.load()
+        self.lib_list.clear()
+        for e in self.lib_entries:
+            self.lib_list.addItem(QListWidgetItem(self.thumbnail(e["crosshair"], e["image"]), e["name"]))
+
+    def _lib_selected(self):
+        row = self.lib_list.currentRow()
+        return row if 0 <= row < len(self.lib_entries) else None
+
+    def _lib_save(self):
+        name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"), text=self.cfg["active_profile"])
+        if ok and name.strip():
+            library.add(name.strip(), copy.deepcopy(self.target("cross")), self.profile()["png_path"])
+            self.load_library()
+
+    def _lib_apply(self):
+        row = self._lib_selected()
+        if row is None:
+            return
+        e = self.lib_entries[row]
+        self.record()
+        self.profile()["crosshair"] = copy.deepcopy(e["crosshair"])
+        if e["image"]:
+            self.profile()["png_path"] = e["image"]
+        self.on_change("crosshair")
+        self.refresh()
+        self.say(f"{tr('Applied')}: {e['name']} ({self.cfg['active_profile']})")
+
+    def _lib_rename(self):
+        row = self._lib_selected()
+        if row is None:
+            return
+        name, ok = QInputDialog.getText(self, tr("Rename"), tr("Name:"), text=self.lib_entries[row]["name"])
+        if ok and name.strip():
+            self.lib_entries[row]["name"] = name.strip()
+            library.save(self.lib_entries)
+            self.load_library()
+
+    def _lib_duplicate(self):
+        row = self._lib_selected()
+        if row is not None:
+            e = copy.deepcopy(self.lib_entries[row])
+            e["name"] += " " + tr("(copy)")
+            self.lib_entries.insert(row + 1, e)
+            library.save(self.lib_entries)
+            self.load_library()
+
+    def _lib_delete(self):
+        row = self._lib_selected()
+        if row is not None and QMessageBox.question(
+                self, tr("Delete"), f"{tr('Delete from library')}: {self.lib_entries[row]['name']}?") == QMessageBox.Yes:
+            del self.lib_entries[row]
+            library.save(self.lib_entries)
+            self.load_library()
+
+    # ---------- QR ----------
+    def _show_qr(self):
+        import qrcode
+        code = export_code(self.target("cross"))
+        qr = qrcode.QRCode(border=2)
+        qr.add_data(code)
+        qr.make(fit=True)
+        m = qr.get_matrix()
+        cell = 6
+        img = QImage(len(m) * cell, len(m) * cell, QImage.Format_RGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img)
+        for y, row in enumerate(m):
+            for x, on in enumerate(row):
+                if on:
+                    p.fillRect(x * cell, y * cell, cell, cell, QColor("black"))
+        p.end()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Share code QR"))
+        v = QVBoxLayout(dlg)
+        pic = QLabel()
+        pic.setPixmap(QPixmap.fromImage(img))
+        v.addWidget(pic, 0, Qt.AlignCenter)
+        text = QLabel(code)
+        text.setWordWrap(True)
+        text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        v.addWidget(text)
+        save = QPushButton(tr("Save QR as PNG"))
+
+        def do_save():
+            path, _ = QFileDialog.getSaveFileName(dlg, tr("Save QR as PNG"), "crosshair_qr.png", "PNG (*.png)")
+            if path and not img.save(path, "PNG"):
+                QMessageBox.warning(dlg, tr("Save QR as PNG"), tr("Could not save the file."))
+
+        save.clicked.connect(do_save)
+        v.addWidget(save)
+        dlg.exec()
+
+    # ---------- export / import ----------
+    def _export_all(self):
+        path, _ = QFileDialog.getSaveFileName(self, tr("Export all"), "crosshair_backup.json", "JSON (*.json)")
+        if not path:
+            return
+        lib = library.load()
+        images = {}
+        for img_path in [p["png_path"] for p in self.cfg["profiles"].values()] + [e["image"] for e in lib]:
+            if img_path and img_path not in images and os.path.isfile(img_path):
+                with open(img_path, "rb") as f:
+                    images[img_path] = base64.b64encode(f.read()).decode("ascii")
+        data = {"format": "nullpoint-export", "version": 1, "config": self.cfg, "library": lib,
+                "images": images}
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=1)
+            self.say(f"{tr('Exported')}: {os.path.basename(path)}")
+        except OSError as e:
+            self.say(f"{tr('Export failed')}: {e}", True)
+
+    def _import_all(self):
+        path, _ = QFileDialog.getOpenFileName(self, tr("Import"), "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or data.get("format") not in ("nullpoint-export", "crosshair-overlay-export") \
+                    or not isinstance(data.get("config"), dict):
+                raise ValueError(tr("not a Nullpoint export file"))
+            images = data.get("images") if isinstance(data.get("images"), dict) else {}
+            lib = data.get("library") if isinstance(data.get("library"), list) else []
+        except (OSError, ValueError) as e:
+            self.say(f"{tr('Import failed')}: {e}", True)
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("Import"))
+        box.setText(tr("Merge with your current profiles, or replace everything?"))
+        merge_btn = box.addButton(tr("Merge"), QMessageBox.AcceptRole)
+        replace_btn = box.addButton(tr("Replace"), QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() not in (merge_btn, replace_btn):
+            return
+        # Embedded images -> custom\imported\, then point profiles/library at the new copies.
+        moved = {}
+        out_dir = os.path.join(library.CUSTOM_DIR, "imported")
+        for old, b64 in images.items():
+            try:
+                raw = base64.b64decode(b64, validate=True)
+            except (ValueError, TypeError):
+                continue
+            name = os.path.basename(str(old)) or "image.png"
+            if os.path.splitext(name)[1].lower() not in (".png", ".gif", ".svg"):
+                continue  # only image files, never anything runnable
+            os.makedirs(out_dir, exist_ok=True)
+            new = os.path.join(out_dir, name)
+            stem, ext = os.path.splitext(new)
+            n = 2
+            while os.path.exists(new):
+                new, n = f"{stem}_{n}{ext}", n + 1
+            with open(new, "wb") as f:
+                f.write(raw)
+            moved[old] = new
+        new_cfg = config.normalize(data["config"])
+        for p in new_cfg["profiles"].values():
+            p["png_path"] = moved.get(p["png_path"], p["png_path"])
+        entries = library.clean(lib)
+        for e in entries:
+            e["image"] = moved.get(e["image"], e["image"])
+        self.record()
+        if box.clickedButton() is replace_btn:
+            self.cfg.clear()
+            self.cfg.update(new_cfg)
+            library.save(entries)
+        else:
+            self.cfg["profiles"].update(new_cfg["profiles"])
+            self.cfg["games"].update(new_cfg["games"])
+            library.save(library.load() + entries)
+        for kind in ("profile", "hotkeys", "general"):
+            self.on_change(kind)
+        self.refresh()
+        self.load_library()
+        self.say(tr("Import done."))
+
+    def _app_tab(self):
+        page = QWidget()
+        f = QFormLayout(page)
+        only = QCheckBox()
+        only.setChecked(self.cfg["show_only_in_games"])
+        only.toggled.connect(lambda v: self._set_cfg("show_only_in_games", v))
+        f.addRow(tr("Hide when game isn't focused"), only)
+        fs = QComboBox()
+        fs.addItems(["Auto", "Borderless", "Exclusive"])
+        fs.setCurrentText(self.cfg["fullscreen_mode"])
+        fs.currentTextChanged.connect(lambda t: self._set_cfg("fullscreen_mode", t))
+        f.addRow(tr("Fullscreen mode"), fs)
+        f.addRow(QLabel(tr("Exclusive fullscreen can't be drawn over by any normal window. "
+                           "Use Windowed Fullscreen / Borderless in the game.")))
+        for key, label in (("toggle", "Toggle overlay hotkey"), ("settings", "Open settings hotkey")):
+            ed = QKeySequenceEdit(QKeySequence(self.cfg["hotkeys"][key]))
+            ed.setMaximumSequenceLength(1)
+            ed.editingFinished.connect(lambda k=key, e=ed: self._set_hotkey(k, e))
+            f.addRow(tr(label), ed)
+        start = QCheckBox()
+        start.setChecked(startup_enabled())
+        start.toggled.connect(self._set_startup)
+        f.addRow(tr("Start with Windows"), start)
+
+        stream = QCheckBox()
+        stream.setChecked(self.cfg["stream_safe"])
+        stream.toggled.connect(lambda v: self._set_cfg("stream_safe", v, "stream"))
+        f.addRow(tr("Hide crosshair from recordings/streams"), stream)
+        f.addRow(QLabel(tr("On: you see it, OBS / Streamlabs / screenshots don't. Off: viewers see it.")))
+        th = QComboBox()
+        for val in ("System", "Dark", "Light"):
+            th.addItem(tr(val), val)
+        th.setCurrentIndex(max(0, th.findData(self.cfg["theme"])))
+        th.currentIndexChanged.connect(lambda i: self._set_cfg("theme", th.itemData(i), "theme"))
+        f.addRow(tr("Theme"), th)
+        lang = QComboBox()
+        for code, name in LANGUAGES.items():
+            lang.addItem(name, code)
+        lang.setCurrentIndex(max(0, lang.findData(self.cfg["language"])))
+        lang.currentIndexChanged.connect(lambda i: self._set_cfg("language", lang.itemData(i), "language"))
+        f.addRow(tr("Language"), lang)
+        repo = QLineEdit(self.cfg["update_repo"])
+        repo.setPlaceholderText("owner/repo")
+        repo.editingFinished.connect(lambda: self._set_cfg("update_repo", repo.text().strip()))
+        f.addRow(tr("Update check (GitHub repo)"), repo)
+        f.addRow(QLabel(tr("Empty = off. Checks at most once a day and only shows a notification.")))
+        b = QPushButton(tr("Alignment test"))
+        b.clicked.connect(self.app.alignment_test)
+        f.addRow(b)
+        return page
+
+    # ---------- actions ----------
+    def refresh(self):
+        """Reload every control from config (after profile switch, paste, reset)."""
+        self.loading = True
+        self.profile_box.blockSignals(True)
+        self.profile_box.clear()
+        self.profile_box.addItems(sorted(self.cfg["profiles"], key=lambda n: (n != "Default", n.lower())))
+        self.profile_box.setCurrentText(self.cfg["active_profile"])
+        self.profile_box.blockSignals(False)
+        self.mode_box.setCurrentIndex(1 if self.target("cross")["mode"] == "png" else 0)
+        for load in self.loaders:
+            load()
+        self.games_table.setRowCount(0)
+        for exe, prof in sorted(self.cfg["games"].items()):
+            r = self.games_table.rowCount()
+            self.games_table.insertRow(r)
+            self.games_table.setItem(r, 0, QTableWidgetItem(exe))
+            self.games_table.setItem(r, 1, QTableWidgetItem(prof))
+        self.loading = False
+        self.update_display_info()
+        self.preview.update()
+
+    def _pick_profile(self, name):
+        if name and name in self.cfg["profiles"] and name != self.cfg["active_profile"]:
+            self.cfg["active_profile"] = name
+            self.on_change("profile")
+            self.refresh()
+
+    def _pick_mode(self, idx):
+        if not self.loading:
+            self.record()
+            self.target("cross")["mode"] = "png" if idx else "lines"
+            self.on_change("crosshair")
+            self.refresh()
+
+    def _set_color(self, text, quiet=False):
+        h = text.strip().lstrip("#").upper()
+        if re.fullmatch(r"[0-9A-F]{6}", h):
+            if h != self.target("cross")["color"]:
+                self.record("color")
+                self.target("cross")["color"] = h
+                self.on_change("crosshair")
+                self.preview.update()
+            if not quiet:
+                self.hex_edit.setText("#" + h)
+        elif not quiet:
+            self.say(tr("Color must be #RRGGBB hex, e.g. #00FFFF."), True)
+
+    def _browse_png(self):
+        path, _ = QFileDialog.getOpenFileName(self, tr("Choose crosshair image"), "", "Images (*.png *.gif *.svg)")
+        if path:
+            self.record()
+            self.profile()["png_path"] = path
+            self.on_change("crosshair")
+            if self.ov.pixmap is None:
+                self.say(tr("Could not load that image."), True)
+            self.refresh()
+
+    def apply_image(self, path):
+        """Editor 'Save + Apply': exact pixels = 100% scale, no rotation."""
+        self.record()
+        p = self.profile()
+        p["png_path"] = path
+        p["crosshair"]["mode"] = "png"
+        p["crosshair"]["png"].update(scale=100, rot=0)
+        self.on_change("crosshair")
+        self.refresh()
+        self.say(f"{tr('Applied')}: {os.path.basename(path)} ({self.cfg['active_profile']})")
+
+    def _copy_code(self):
+        QGuiApplication.clipboard().setText(export_code(self.target("cross")))
+        self.say(tr("Code copied to clipboard."))
+
+    def _paste_code(self):
+        try:
+            cross = import_code(QGuiApplication.clipboard().text())
+        except ShareCodeError as e:
+            self.say(f"{tr('Invalid code')}: {e}", True)
+            return
+        self.record()
+        self.profile()["crosshair"] = cross
+        self.on_change("crosshair")
+        self.refresh()
+        msg = f"{tr('Code applied to profile')}: {self.cfg['active_profile']}"
+        if cross["mode"] == "png":
+            msg += ". " + tr("Image codes hold settings only - pick the image on the Image tab.")
+        self.say(msg)
+
+    def _add_game(self, exe):
+        exe = os.path.basename(exe.strip()).lower()
+        if not exe:
+            return
+        if not exe.endswith(".exe"):
+            exe += ".exe"
+        default = self.cfg["games"].get(exe) or os.path.splitext(exe)[0].split("-")[0].capitalize()
+        name, ok = QInputDialog.getText(self, tr("Profile"), f"{tr('Profile name for')} {exe}\n"
+                                        + tr("(existing name = share that profile):"), text=default)
+        name = name.strip()
+        if not ok or not name:
+            return
+        if name not in self.cfg["profiles"]:
+            self.cfg["profiles"][name] = copy.deepcopy(config.DEFAULT_PROFILE)
+        self.cfg["games"][exe] = name
+        self.on_change("general")
+        self.refresh()
+
+    def _add_game_browse(self):
+        path, _ = QFileDialog.getOpenFileName(self, tr("Choose game .exe"), "", "Programs (*.exe)")
+        if path:
+            self._add_game(path)
+
+    def _add_game_name(self):
+        name, ok = QInputDialog.getText(self, tr("Add game"), tr("Process name (e.g. cs2.exe):"))
+        if ok:
+            self._add_game(name)
+
+    def _remove_game(self):
+        row = self.games_table.currentRow()
+        if row >= 0:
+            # Profile is kept (it may hold a crosshair you want); only the game link is removed.
+            self.cfg["games"].pop(self.games_table.item(row, 0).text(), None)
+            self.on_change("general")
+            self.refresh()
+
+    def _rename_profile(self):
+        old = self.cfg["active_profile"]
+        if old == "Default":
+            self.say(tr("The Default profile can't be renamed."), True)
+            return
+        new, ok = QInputDialog.getText(self, tr("Rename profile"), tr("New name:"), text=old)
+        new = new.strip()
+        if not ok or not new or new == old:
+            return
+        if new in self.cfg["profiles"]:
+            self.say(tr("A profile with that name already exists."), True)
+            return
+        self.cfg["profiles"][new] = self.cfg["profiles"].pop(old)
+        self.cfg["games"] = {exe: (new if p == old else p) for exe, p in self.cfg["games"].items()}
+        self.cfg["active_profile"] = new
+        self.on_change("general")
+        self.refresh()
+
+    def _set_cfg(self, key, val, kind="general"):
+        self.cfg[key] = val
+        self.on_change(kind)
+
+    def _set_hotkey(self, key, edit):
+        seq = edit.keySequence().toString()
+        if seq and seq != self.cfg["hotkeys"][key]:
+            self.cfg["hotkeys"][key] = seq
+            self.on_change("hotkeys")
+
+    def _set_startup(self, on):
+        try:
+            set_startup(on)
+        except OSError as e:
+            self.say(f"{tr('Could not change startup setting')}: {e}", True)
+
+    def closeEvent(self, e):
+        e.ignore()
+        self.hide()  # app keeps running in the tray

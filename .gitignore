@@ -1,0 +1,16 @@
+# environment / build output
+.venv/
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# personal app data (never commit your own config, library or images)
+config.json
+config.json.*
+library.json
+custom/
+error.log
+*.corrupt-*.bak
+crosshair_backup*.json
