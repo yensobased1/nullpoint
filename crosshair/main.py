@@ -39,6 +39,7 @@ user32 = ctypes.windll.user32
 user32.RegisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_uint, ctypes.c_uint]
 user32.UnregisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int]
 HOTKEY_IDS = {"toggle": 1, "settings": 2, "switcher": 3}
+VK_LBUTTON = 0x01
 HOTKEY_LABELS = {"toggle": "Toggle overlay", "settings": "Open settings", "switcher": "Quick switcher",
                  "hold_hide": "Hide while held", "cheat": "Show this cheat sheet (hold)"}
 # Shell windows that grab focus when you click the tray: never "the current game".
@@ -76,6 +77,7 @@ class App:
         i18n.set_language(self.cfg["language"])
         self.qt.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
         self.ov = Overlay()
+        self.ov.reduce_motion = self.cfg["reduce_motion"]
         self.ov.hotkey.connect(self.on_hotkey)
         self.settings = None
         self.base_center = game_detect.monitor_center(None)
@@ -320,6 +322,10 @@ class App:
             self.register_hotkeys()
         elif kind == "stream":
             self.apply_stream_safe()
+        elif kind == "motion":
+            self.ov.reduce_motion = self.cfg["reduce_motion"]
+            self.ov._update_timer()
+            self.apply()
         elif kind == "power":
             self.power_check = 0
             self.update_power()
@@ -448,6 +454,9 @@ class App:
         if down != self.held_hidden:
             self.held_hidden = down
             self.place()
+        # Fire expand: our own left-mouse state only, and only while a game window is focused.
+        ex = self.profile()["crosshair"]["expand"]["on"]
+        self.ov.set_firing(ex and self.game_active and self.ov.isVisible() and is_down(VK_LBUTTON))
         cheat = hold_vk(self.cfg["hotkeys"].get("cheat"))
         show = bool(cheat) and is_down(cheat)
         if show and not self.card.isVisible():

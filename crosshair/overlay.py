@@ -4,8 +4,10 @@ Plain separate top-level window only: no injection, no DirectX hooks, no game me
 The settings preview, library thumbnails and the overlay all draw through render().
 """
 import ctypes
+import json
 import math
 import os
+import re
 import time
 from ctypes import wintypes
 
@@ -60,25 +62,50 @@ def dash_segments(length, style, thick):
     return out
 
 
-def line_rects(sec, c, top=True, style=None):
-    """Rects (x, y, w, h) for the arms. gap = px from center to the first pixel of each arm,
-    len = px of each arm, thick = px width. All arms are mirror images of each other."""
+def arm_rects(sec, c, top=True, style=None, lens=None):
+    """{arm: [rects (x, y, w, h)]} for arms r/l/b/t. gap = px from center to the first pixel of each arm,
+    len = px of each arm, thick = px width. lens = per-arm lengths {t, r, b, l} (None = len / vlen)."""
     if not sec["on"]:
-        return []
+        return {}
     t, g = sec["thick"], sec["gap"]
     hl = sec["len"]
     vl = sec["vlen"] if sec["vsep"] else hl
+    lens = lens or {"r": hl, "l": hl, "b": vl, "t": vl}
     b = band(c, t)
     near = c + g + t % 2  # first pixel on the +x/+y side (odd sizes skip the center pixel itself)
     far = c - g  # exclusive end on the -x/-y side
     style = style or {"kind": "solid"}
+    seg = lambda n: dash_segments(n, style, t) if n > 0 else []
+    out = {"r": [(near + off, b, n, t) for off, n in seg(lens["r"])],
+           "l": [(far - off - n, b, n, t) for off, n in seg(lens["l"])],
+           "b": [(b, near + off, t, n) for off, n in seg(lens["b"])]}
+    if top:
+        out["t"] = [(b, far - off - n, t, n) for off, n in seg(lens["t"])]
+    return out
+
+
+def line_rects(sec, c, top=True, style=None):
+    """All arm rects in one list (mirror-image arms)."""
+    return [r for rects in arm_rects(sec, c, top, style).values() for r in rects]
+
+
+def dot_rects(size, c, shape="square"):
+    """Center dot as whole-pixel rows: square, circle or diamond. Pixel-exact at any size (no antialiasing)."""
+    a = band(c, size)
+    if shape == "square" or size <= 2:
+        return [(a, a, size, size)]
+    h = size / 2
     out = []
-    for off, n in dash_segments(hl, style, t) if hl > 0 else []:
-        out += [(near + off, b, n, t), (far - off - n, b, n, t)]  # right, left
-    for off, n in dash_segments(vl, style, t) if vl > 0 else []:
-        out.append((b, near + off, t, n))  # down
-        if top:
-            out.append((b, far - off - n, t, n))  # up
+    for j in range(size):
+        dy = abs(j + 0.5 - h)
+        # Circle: pixel centers inside radius h - 0.25 (keeps 3 px from being a square). Diamond: |dx|+|dy| <= h.
+        if shape == "circle":
+            w = math.sqrt(max(0.0, (h - 0.25) ** 2 - dy * dy))
+        else:
+            w = h - dy
+        n = sum(1 for i in range(size) if abs(i + 0.5 - h) <= w + 1e-9)
+        if n:
+            out.append((a + (size - n) // 2, a + j, n, 1))
     return out
 
 
@@ -188,13 +215,17 @@ def extent(cross, pixmap=None):
         return max(pixmap.width(), pixmap.height()) // 2 + 2
     o = cross["outline"]["thick"] if cross["outline"]["on"] else 0
     o += cross["shadow"]["size"] if cross["shadow"]["on"] else 0
+    o += cross["expand"]["px"] if cross["expand"]["on"] else 0  # room for the fully expanded lines
     if cross["mode"] == "text":
         return int(cross["text"]["size"] * 1.2) + o + 2
     r = cross["dot"]["size"] if cross["dot"]["on"] else 1
+    arms = cross["arms"]
     for k in ("inner", "outer"):
         s = cross[k]
         if s["on"]:
             r = max(r, s["gap"] + max(s["len"], s["vlen"] if s["vsep"] else s["len"]) + s["thick"])
+            if k == "inner" and not arms["link"]:
+                r = max(r, s["gap"] + max(arms[a] for a in "trbl") + s["thick"])
     if cross["shape"] in ("square", "chevron", "x", "hexagon", "triangle", "diamond", "plus") or cross["rot"]:
         r = int(r * 1.42) + 1  # diagonal of a box / rotated arm
     ring = cross["ring"]
@@ -291,10 +322,116 @@ def part_brush(cross, color, alpha, reach, c, hue):
     return QBrush(grad)
 
 
-def render(p: QPainter, cross, c, pixmap=None, sx=1.0, hue=None):
-    """Draw the crosshair with its center on pixel (c, c). Layers: shadow, outline, fill.
+HEX = re.compile(r"[0-9A-Fa-f]{6}")
+_halo_cache = {}  # (crosshair, c, spread) -> QImage of the shadow / glow layer: built once, not per frame
+
+
+def with_spread(cross, spread):
+    """Fire expand: the same crosshair with inner/outer gaps grown by spread px."""
+    if not spread:
+        return cross
+    out = dict(cross)
+    for k in ("inner", "outer"):
+        out[k] = dict(cross[k], gap=cross[k]["gap"] + spread)
+    return out
+
+
+def build_parts(cross, c, hue=None):
+    """-> [(rects or None, path or None, QColor, alpha, gradient reach)] in draw order (later parts on top)."""
+    cols = part_colors(cross, hue)
+    shape = cross["shape"]
+    rot = (cross["rot"] + (45 if shape == "x" else 0)) % 360
+    parts = []
+    if cross["mode"] == "text":
+        parts.append((None, text_path(cross, c), cols["lines"], cross["text"]["alpha"], 0))
+        return parts
+    arms = cross["arms"]
+    per_arm = not arms["link"] and shape in ("cross", "t", "x")
+    if shape not in ("dot", "circle"):
+        for k in ("inner", "outer"):
+            sec = cross[k]
+            if not sec["on"]:
+                continue
+            lens = {a: arms[a] for a in "trbl"} if per_arm and k == "inner" else None
+            reach = sec["gap"] + (max(lens.values()) if lens else max(sec["len"], sec["vlen"]))
+            cc = center_point(c, sec["thick"])
+            turn = QTransform().translate(cc, cc).rotate(rot).translate(-cc, -cc)
+
+            def add(rects, color, alpha=sec["alpha"], reach=reach, turn=turn):
+                if rot:
+                    parts.append((None, turn.map(rect_path(rects)), color, alpha, reach))
+                elif rects:
+                    parts.append((rects, None, color, alpha, reach))
+
+            if shape in ("chevron", "hexagon", "triangle", "diamond"):
+                path = chevron_path(sec, c) if shape == "chevron" else polygon_path(sec, c, shape)
+                parts.append((None, turn.map(path) if rot else path, cols["lines"], sec["alpha"], reach))
+            elif shape == "square":
+                add(square_rects(sec, c), cols["lines"])
+            elif shape == "plus":
+                add(plus_rects(sec, c), cols["lines"])
+            elif per_arm:
+                for a, rects in arm_rects(sec, c, top=shape != "t", style=cross["style"], lens=lens).items():
+                    v = arms["c" + a]
+                    use = hue is None and isinstance(v, str) and HEX.fullmatch(v)
+                    add(rects, QColor("#" + v) if use else cols["lines"])
+            else:
+                add(line_rects(sec, c, top=shape != "t", style=cross["style"]), cols["lines"])
+    ring = cross["ring"]
+    if ring["on"] or shape == "circle":
+        parts.append((None, ring_path(ring, c), cols["ring"], ring["alpha"], 0))
+    d = cross["dot"]
+    if d["on"]:
+        parts.append((dot_rects(d["size"], c, d["shape"]), None, cols["dot"], d["alpha"], 0))
+    return parts
+
+
+def halo_steps(cross):
+    """[(grow px beyond the outline, QColor)] outermost first: the shadow (black) or glow (color) rings."""
+    sh = cross["shadow"]
+    if not (sh["on"] and sh["size"] > 0 and sh["alpha"] > 0):
+        return []
+    glow = sh["mode"] == "glow"
+    base = QColor("#" + sh["color"]) if glow and HEX.fullmatch(str(sh["color"])) else QColor(0, 0, 0)
+    n, out = sh["size"], []
+    for k in range(n, 0, -1):
+        f = (n - k + 1) / n
+        col = QColor(base)
+        col.setAlpha(round(255 * sh["alpha"] * (f * f if glow else f)))  # glow fades out softer
+        out.append((k, col))
+    return out
+
+
+def outline_px(cross):
+    ol = cross["outline"]
+    return ol["thick"] if ol["on"] and ol["thick"] > 0 else 0
+
+
+def halo_layer(cross, parts, c, spread):
+    """Shadow / glow as one cached image (size 2c+1). Hard-edged steps, so it never blurs into the center."""
+    key = (json.dumps(cross, sort_keys=True), c, spread)
+    img = _halo_cache.get(key)
+    if img is None:
+        img = QImage(2 * c + 1, 2 * c + 1, QImage.Format_ARGB32_Premultiplied)
+        img.fill(0)
+        q = QPainter(img)
+        q.setPen(Qt.NoPen)
+        q.setCompositionMode(QPainter.CompositionMode_Source)
+        o = outline_px(cross)
+        for k, col in halo_steps(cross):
+            fill_union(q, *grown(parts, o + k), col)
+        q.end()
+        if len(_halo_cache) >= 24:
+            _halo_cache.clear()
+        _halo_cache[key] = img
+    return img
+
+
+def render(p: QPainter, cross, c, pixmap=None, sx=1.0, hue=None, spread=0):
+    """Draw the crosshair with its center on pixel (c, c). Layers: shadow/glow, outline, fill.
     Lines/dot/box/plus: integer rects, antialiasing off = pixel exact. Ring/polygons/text/rotated: antialiased.
-    sx != 1 stretches horizontally (stretched-resolution helper). hue = rainbow color (0..1) or None."""
+    sx != 1 stretches horizontally (stretched-resolution helper). hue = rainbow color (0..1) or None.
+    spread = fire-expand px added to the line gaps."""
     p.setRenderHint(QPainter.Antialiasing, False)
     p.setPen(Qt.NoPen)
     if sx != 1.0:
@@ -308,55 +445,15 @@ def render(p: QPainter, cross, c, pixmap=None, sx=1.0, hue=None):
             p.drawPixmap(c - pixmap.width() // 2, c - pixmap.height() // 2, pixmap)
             p.setOpacity(1.0)
         return
-    cols = part_colors(cross, hue)
-    shape = cross["shape"]
-    rot = (cross["rot"] + (45 if shape == "x" else 0)) % 360
-    parts = []  # (rects or None, path or None, color, alpha, gradient reach)
-    if cross["mode"] == "text":
-        parts.append((None, text_path(cross, c), cols["lines"], cross["text"]["alpha"], 0))
-    elif shape not in ("dot", "circle"):
-        for k in ("inner", "outer"):
-            sec = cross[k]
-            if not sec["on"]:
-                continue
-            reach = sec["gap"] + max(sec["len"], sec["vlen"])
-            cc = center_point(c, sec["thick"])
-            turn = QTransform().translate(cc, cc).rotate(rot).translate(-cc, -cc)
-            if shape in ("chevron", "hexagon", "triangle", "diamond"):
-                path = chevron_path(sec, c) if shape == "chevron" else polygon_path(sec, c, shape)
-                parts.append((None, turn.map(path) if rot else path, cols["lines"], sec["alpha"], reach))
-                continue
-            if shape == "square":
-                rects = square_rects(sec, c)
-            elif shape == "plus":
-                rects = plus_rects(sec, c)
-            else:
-                rects = line_rects(sec, c, top=shape != "t", style=cross["style"])
-            if rot:
-                parts.append((None, turn.map(rect_path(rects)), cols["lines"], sec["alpha"], reach))
-            elif rects:
-                parts.append((rects, None, cols["lines"], sec["alpha"], reach))
-    if cross["mode"] != "text":
-        ring = cross["ring"]
-        if ring["on"] or shape == "circle":
-            parts.append((None, ring_path(ring, c), cols["ring"], ring["alpha"], 0))
-        d = cross["dot"]
-        if d["on"]:
-            a = band(c, d["size"])
-            parts.append(([(a, a, d["size"], d["size"])], None, cols["dot"], d["alpha"], 0))
-
-    ol = cross["outline"]
-    o = ol["thick"] if ol["on"] and ol["thick"] > 0 else 0
-    sh = cross["shadow"]
-    if sh["on"] and sh["size"] > 0 and sh["alpha"] > 0:
-        # Soft halo, outermost ring faintest. Hard-edged steps: no blur bleeding into the center.
-        p.setCompositionMode(QPainter.CompositionMode_Source)
-        for k in range(sh["size"], 0, -1):
-            fill_union(p, *grown(parts, o + k), QColor(0, 0, 0, round(255 * sh["alpha"] * (sh["size"] - k + 1) / sh["size"])))
-        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+    shaped = with_spread(cross, spread)
+    parts = build_parts(shaped, c, hue)
+    if halo_steps(cross):
+        p.drawImage(0, 0, halo_layer(shaped, parts, c, spread))
+    o = outline_px(cross)
     if o:
-        col = QColor(cols["outline"])
-        col.setAlpha(round(255 * ol["alpha"]))
+        col = QColor(part_colors(cross, hue)["outline"])
+        col.setAlpha(round(255 * cross["outline"]["alpha"]))
+        p.setCompositionMode(QPainter.CompositionMode_Source)
         fill_union(p, *grown(parts, o), col)  # union: overlaps don't double the opacity
     # Source mode: fill replaces the outline under it, so fill opacity is exactly what you set.
     p.setCompositionMode(QPainter.CompositionMode_Source)
@@ -387,6 +484,12 @@ class Overlay(QWidget):
         self.movie = None
         self.paused = False
         self.low_power = False  # set by the app: pauses rainbow / GIF animation
+        self.reduce_motion = False  # set by the app: no rainbow, first GIF frame only, instant fire expand
+        self.spread = 0.0  # current fire-expand px
+        self.firing = False
+        self._fire_from, self._fire_t0 = 0.0, 0.0
+        self.fire_timer = QTimer(self, interval=FRAME_MS)  # runs only while the lines are moving
+        self.fire_timer.timeout.connect(self._fire_tick)
         self.hue = None
         self.c = 8
         self.sx = 1.0
@@ -415,7 +518,13 @@ class Overlay(QWidget):
             self._set_movie(png_path if gif else None)
             self.pixmap = png_pixmap(png_path, cross["png"]) if key else None
         if self.movie:
-            self.movie.setPaused(paused)
+            self.movie.setPaused(paused or self.reduce_motion)
+            if self.reduce_motion and self.movie.currentFrameNumber() != 0:
+                self.movie.jumpToFrame(0)
+                self.pixmap = transform_image(self.movie.currentImage(), cross["png"])
+        if not (cross["mode"] == "lines" and cross["expand"]["on"]):
+            self.firing, self.spread = False, 0.0
+            self.fire_timer.stop()
         self.c = round(extent(cross, self.pixmap) * max(1.0, sx))
         self._update_timer()
         self._place()
@@ -433,7 +542,8 @@ class Overlay(QWidget):
 
     def _gif_frame(self, _):
         now = time.monotonic()
-        if (now - self._last_frame) * 1000 < FRAME_MS or not self.isVisible() or self.low_power:
+        if (now - self._last_frame) * 1000 < FRAME_MS or not self.isVisible() or self.low_power \
+                or self.reduce_motion:
             return  # cap at ~15 fps and skip work while hidden
         self._last_frame = now
         self.pixmap = transform_image(self.movie.currentImage(), self.cross["png"])
@@ -442,7 +552,7 @@ class Overlay(QWidget):
 
     def _update_timer(self):
         want = self.isVisible() and self.cross is not None and self.cross["mode"] != "png" \
-            and self.cross["rainbow"]["on"] and not self.low_power
+            and self.cross["rainbow"]["on"] and not self.low_power and not self.reduce_motion
         self.hue = (self.hue or 0.0) if want else None
         if want and not self.timer.isActive():
             self.timer.start()
@@ -453,6 +563,34 @@ class Overlay(QWidget):
         self.hue = (self.hue + 0.004 * self.cross["rainbow"]["speed"]) % 1.0
         self.update()
         self.frame.emit()
+
+    def set_firing(self, down):
+        """Left mouse held in a game (from the app's key poll): move the lines out, back on release."""
+        cross = self.cross
+        down = bool(down) and cross is not None and cross["mode"] == "lines" and cross["expand"]["on"]
+        if down == self.firing:
+            return
+        self.firing = down
+        self._fire_from, self._fire_t0 = self.spread, time.monotonic()
+        self._fire_tick()
+
+    def _fire_tick(self):
+        ex = self.cross["expand"]
+        target = float(ex["px"]) if self.firing else 0.0
+        if self.reduce_motion or ex["ms"] <= 0:
+            val = target
+        else:
+            f = min(1.0, (time.monotonic() - self._fire_t0) * 1000 / ex["ms"])
+            val = self._fire_from + (target - self._fire_from) * f
+        changed = round(val) != round(self.spread)
+        self.spread = val
+        if changed:
+            self.update()
+            self.frame.emit()
+        if val == target:
+            self.fire_timer.stop()
+        elif not self.fire_timer.isActive():
+            self.fire_timer.start()
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -490,7 +628,7 @@ class Overlay(QWidget):
 
     def draw(self, p, c=None):
         """Render the current state; the settings preview uses this too."""
-        render(p, self.cross, self.c if c is None else c, self.pixmap, self.sx, self.hue)
+        render(p, self.cross, self.c if c is None else c, self.pixmap, self.sx, self.hue, round(self.spread))
 
     def nativeEvent(self, event_type, message):
         msg = wintypes.MSG.from_address(int(message))

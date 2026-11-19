@@ -1,4 +1,4 @@
-"""Our own crosshair share-code format (XH2, reads XH1 too). Not compatible with VALORANT codes, on purpose.
+"""Our own crosshair share-code format (XH4, reads XH1-XH3 too). Not compatible with VALORANT codes, on purpose.
 
 XH2;m:l;c:00FFFF;o:1,1,0.5;d:1,2,1;i:1,6,2,3,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;s:c;r:0;
     g:0,10,1,1,0,20,0;k:1,00FFFF,00FFFF,00FFFF,000000;w:0,5,1
@@ -10,8 +10,10 @@ from urllib.parse import quote, unquote
 
 from config import DEFAULT_CROSSHAIR
 
-VERSION = "XH3"
-READABLE = ("XH1", "XH2", "XH3")  # XH1: no shapes/ring/colors; XH2: no shadow/gradient/style/text
+VERSION = "XH4"
+# XH1: no shapes/ring/colors; XH2: no shadow/gradient/style/text; XH3: no arms/dot shape/glow/expand
+READABLE = ("XH1", "XH2", "XH3", "XH4")
+MAX_CODE = 2048  # anything longer is not a crosshair code
 
 LINE = [("on", bool, 0, 1), ("len", int, 0, 30), ("thick", int, 1, 10), ("gap", int, 0, 40),
         ("alpha", float, 0, 1), ("vsep", bool, 0, 1), ("vlen", int, 0, 30)]
@@ -25,8 +27,15 @@ FIELDS = {
     "g": ("ring", [("on", bool, 0, 1), ("radius", int, 1, 50), ("thick", int, 1, 10), ("alpha", float, 0, 1),
                    ("gaps", int, 0, 8), ("gapsize", int, 0, 90), ("gaprot", int, 0, 359)]),
     "w": ("rainbow", [("on", bool, 0, 1), ("speed", int, 1, 10), ("sat", float, 0, 1)]),
-    "h": ("shadow", [("on", bool, 0, 1), ("size", int, 0, 6), ("alpha", float, 0, 1)]),
+    "h": ("shadow", [("on", bool, 0, 1), ("size", int, 0, 8), ("alpha", float, 0, 1)]),
+    "a": ("arms", [("link", bool, 0, 1), ("t", int, 0, 30), ("r", int, 0, 30), ("b", int, 0, 30), ("l", int, 0, 30)]),
+    "f": ("expand", [("on", bool, 0, 1), ("px", int, 0, 20), ("ms", int, 0, 500)]),
 }
+ARM_COLORS = ("ct", "cr", "cb", "cl")
+DOT_SHAPES = {"s": "square", "c": "circle", "d": "diamond"}
+DOT_KEYS = {v: k for k, v in DOT_SHAPES.items()}
+HALO = {"s": "shadow", "g": "glow"}
+HALO_KEYS = {v: k for k, v in HALO.items()}
 MODES = {"l": "lines", "p": "png", "t": "text"}
 MODE_KEYS = {v: k for k, v in MODES.items()}
 SHAPES = {"c": "cross", "t": "t", "d": "dot", "o": "circle", "q": "square", "v": "chevron", "x": "x",
@@ -70,6 +79,10 @@ def export_code(cross):
               "y:" + _num(cross["gradient"]["on"]) + "," + cross["gradient"]["c2"].upper(),
               "l:" + ",".join([STYLE_KEYS.get(cross["style"]["kind"], "s"), str(cross["style"]["dash"]),
                                str(cross["style"]["gap"])])]
+    hexes = lambda v: v.upper() if isinstance(v, str) and HEX.fullmatch(v) else ""  # bad config value -> default
+    parts += ["z:" + DOT_KEYS.get(cross["dot"]["shape"], "s"),
+              "q:" + HALO_KEYS.get(cross["shadow"]["mode"], "s") + "," + (hexes(cross["shadow"]["color"]) or "FFFFFF"),
+              "u:" + ",".join(hexes(cross["arms"][k]) for k in ARM_COLORS)]
     tx = cross["text"]
     # Text and font are percent-encoded so ; , : can never break the code.
     parts.append("x:" + ",".join([quote(tx["chars"], safe=""), str(tx["size"]), _num(tx["bold"]),
@@ -80,6 +93,8 @@ def export_code(cross):
 def import_code(text):
     """Code -> full crosshair dict. Missing keys/fields = defaults, unknown keys ignored."""
     text = (text or "").strip()
+    if len(text) > MAX_CODE:
+        raise ShareCodeError("That code is too long to be a crosshair code.")
     parts = [p for p in text.split(";") if p.strip()]
     if not parts or parts[0].strip().upper() not in READABLE:
         raise ShareCodeError(f"Not a crosshair code (must start with {VERSION} or XH1).")
@@ -126,6 +141,20 @@ def import_code(text):
                 tx["alpha"] = min(max(round(_float(vals[3], key), 2), 0.0), 1.0)
             if len(vals) > 4:
                 tx["font"] = unquote(vals[4])[:64]
+        elif key == "z":
+            cross["dot"]["shape"] = DOT_SHAPES.get(val.lower(), "square")
+        elif key == "q":
+            vals = val.split(",")
+            cross["shadow"]["mode"] = HALO.get(vals[0].lower(), "shadow")
+            if len(vals) > 1 and vals[1]:
+                if not HEX.fullmatch(vals[1]):
+                    raise ShareCodeError(f"Bad color '{vals[1]}' (expected RRGGBB hex).")
+                cross["shadow"]["color"] = vals[1].upper()
+        elif key == "u":
+            for name, v in zip(ARM_COLORS, val.split(",")):
+                if v and not HEX.fullmatch(v):
+                    raise ShareCodeError(f"Bad color '{v}' (expected RRGGBB hex).")
+                cross["arms"][name] = v.upper()
         elif key == "k":
             vals = val.split(",")
             if vals and vals[0] != "":

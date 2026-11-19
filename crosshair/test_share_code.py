@@ -30,7 +30,7 @@ class ShareCodeTests(unittest.TestCase):
         c["style"].update(kind="dashed", dash=3, gap=2)
         c["text"].update(chars="×;,", size=40, bold=False, alpha=0.9, font="Segoe UI, Bold")
         code = export_code(c)
-        self.assertTrue(code.startswith("XH3;"))
+        self.assertTrue(code.startswith("XH4;"))
         self.assertEqual(import_code(code), c)
 
     def test_xh2_codes_still_load(self):

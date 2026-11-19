@@ -21,7 +21,7 @@ DEFAULT_CROSSHAIR = {
     "mode": "lines",  # "lines", "png" or "text"
     "color": "00FFFF",
     "outline": {"on": True, "thick": 1, "alpha": 0.5},
-    "dot": {"on": True, "size": 2, "alpha": 1.0},
+    "dot": {"on": True, "size": 2, "alpha": 1.0, "shape": "square"},  # square / circle / diamond
     "inner": {"on": True, "len": 6, "thick": 2, "gap": 3, "alpha": 0.8, "vsep": False, "vlen": 6},
     "outer": {"on": False, "len": 2, "thick": 2, "gap": 10, "alpha": 0.35, "vsep": False, "vlen": 2},
     "png": {"scale": 100, "alpha": 1.0, "rot": 0},
@@ -30,10 +30,15 @@ DEFAULT_CROSSHAIR = {
     "ring": {"on": False, "radius": 10, "thick": 1, "alpha": 1.0, "gaps": 0, "gapsize": 20, "gaprot": 0},
     "colors": {"same": True, "lines": "00FFFF", "dot": "00FFFF", "ring": "00FFFF", "outline": "000000"},
     "rainbow": {"on": False, "speed": 5, "sat": 1.0},
-    "shadow": {"on": False, "size": 2, "alpha": 0.5},  # soft dark halo under the outline
+    # Soft halo under the outline: mode "shadow" (black) or "glow" (color). size = radius px, alpha = intensity.
+    "shadow": {"on": False, "size": 2, "alpha": 0.5, "mode": "shadow", "color": "FFFFFF"},
     "gradient": {"on": False, "c2": "FFFFFF"},  # lines: main/lines color at the center -> c2 at the tips
     "style": {"kind": "solid", "dash": 4, "gap": 2},  # solid / dashed / dotted
     "text": {"chars": "+", "font": "", "size": 24, "bold": True, "alpha": 1.0},  # mode "text"
+    # Per-arm inner length (t/r/b/l) and arm color (ct.., "" = lines color). Used only when link is off.
+    "arms": {"link": True, "t": 6, "r": 6, "b": 6, "l": 6, "ct": "", "cr": "", "cb": "", "cl": ""},
+    # Fire expand: while left mouse is held in a game, line gaps grow by px over ms. Visual only.
+    "expand": {"on": False, "px": 4, "ms": 120},
 }
 
 DEFAULT_PROFILE = {
@@ -86,6 +91,7 @@ DEFAULT_CONFIG = {
     # VALORANT draws its crosshair in raw pixels (no resolution scaling), so imports are 1:1 by default.
     # On = scale by screen height / 1080 to keep the look you had at 1080p.
     "valorant_scale_1080": False,
+    "reduce_motion": False,  # no rainbow, GIF playback or fire-expand animation
 }
 
 

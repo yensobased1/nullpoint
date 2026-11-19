@@ -20,6 +20,7 @@ import config
 import library
 import overlay
 import sharing
+import svg_export
 import cs2
 import valorant
 from editor import EditorTab
@@ -37,6 +38,9 @@ SHAPES = [("cross", "Cross"), ("t", "T-Shape"), ("dot", "Dot only"), ("circle", 
           ("hexagon", "Hexagon"), ("triangle", "Triangle"), ("diamond", "Diamond"), ("plus", "Plus (thick +)"),
           ("square", "Square"), ("chevron", "Chevron (^)"), ("x", "X")]
 LINE_STYLES = [("solid", "Solid"), ("dashed", "Dashed"), ("dotted", "Dotted")]
+DOT_SHAPES = [("square", "Square"), ("circle", "Circle"), ("diamond", "Diamond")]
+HALO_MODES = [("shadow", "Shadow"), ("glow", "Glow")]
+ARMS = [("t", "Top"), ("r", "Right"), ("b", "Bottom"), ("l", "Left")]
 # Colorblind-friendly palettes: main color + outline color. Applying changes colors only.
 COLORBLIND = [("Protanopia", "00FFFF", "000000"), ("Deuteranopia", "FFFF00", "000000"),
               ("Tritanopia", "FF4D8D", "000000"), ("High contrast", "FFFFFF", "000000")]
@@ -304,7 +308,7 @@ class SettingsWindow(QWidget):
         self.target(sec)[key] = val
         self.on_change("crosshair")
         self.preview.update()
-        if sec in ("style", "rainbow", "gradient"):
+        if sec in ("style", "rainbow", "gradient", "shadow", "arms", "expand", "cross"):
             self.update_visibility()
         if sec in ("stretch", "profile"):
             self.update_display_info()
@@ -365,19 +369,21 @@ class SettingsWindow(QWidget):
         form.addRow(tr(label), box)
         return box
 
-    def add_hex(self, form, label, sec, key):
+    def add_hex(self, form, label, sec, key, allow_empty=False):
         ed = QLineEdit()
         ed.setMaxLength(7)
         ed.setFixedWidth(80)
         ed.setAccessibleName(tr(label))
+        if allow_empty:
+            ed.setPlaceholderText(tr("Lines color"))
 
         def changed(text):
             h = text.strip().lstrip("#").upper()
-            if re.fullmatch(r"[0-9A-F]{6}", h):
+            if re.fullmatch(r"[0-9A-F]{6}", h) or (allow_empty and not h):
                 self.set_value(sec, key, h)
 
         ed.textEdited.connect(changed)
-        self.loaders.append(lambda: ed.setText("#" + self.target(sec)[key]))
+        self.loaders.append(lambda: ed.setText("#" + self.target(sec)[key] if self.target(sec)[key] else ""))
         form.addRow(tr(label), ed)
         return ed
 
@@ -398,6 +404,15 @@ class SettingsWindow(QWidget):
         cross["colors"].update(lines=main, dot=main, ring=main, outline=outline)
         self.on_change("crosshair")
         self.refresh()
+
+    def _unlink_arms(self, link):
+        """Unlinking starts every arm from the current inner line lengths."""
+        if not link and not self.loading:
+            inner = self.target("inner")
+            v = inner["vlen"] if inner["vsep"] else inner["len"]
+            self.target("arms").update(t=v, b=v, r=inner["len"], l=inner["len"])
+            self.on_change("crosshair")
+            self.refresh()
 
     def _split_colors(self, same):
         """Turning 'same color' off starts every part from the current main color."""
@@ -517,8 +532,11 @@ class SettingsWindow(QWidget):
         g, f, reset = self.group(lay, "Shadow", ["shadow"], "shadow",
                                  "Soft dark halo under the outline, for bright backgrounds.")
         self.add_check(f, "Show shadow", "shadow", "on")
+        self.add_combo(f, "Halo type", "shadow", "mode", HALO_MODES)
+        glow = self.add_hex(f, "Glow color", "shadow", "color")
         self.add_slider(f, "Shadow size", "shadow", "size")
         self.add_slider(f, "Shadow opacity", "shadow", "alpha", dec=2)
+        self.rules.append(lambda f=f: f.setRowVisible(glow, self.target("shadow")["mode"] == "glow"))
         f.addRow(reset)
 
         g, f, reset = self.group(lay, "Text crosshair", ["text"], "text_crosshair",
@@ -547,6 +565,7 @@ class SettingsWindow(QWidget):
         g, f, reset = self.group(lay2, "Center Dot", ["dot"])
         self.mode_groups["lines"].append(g)
         self.add_check(f, "Show", "dot", "on")
+        self.add_combo(f, "Dot shape", "dot", "shape", DOT_SHAPES)
         self.add_slider(f, "Size", "dot", "size")
         self.add_slider(f, "Opacity", "dot", "alpha", dec=2)
         f.addRow(reset)
@@ -562,6 +581,26 @@ class SettingsWindow(QWidget):
             self.add_check(f, "Separate vertical length", sec, "vsep")
             self.add_slider(f, "Vertical length", sec, "vlen")
             f.addRow(reset)
+
+        g, f, reset = self.group(lay2, "Per-arm", ["arms"], "line_style",
+                                 "Off = give each arm (inner lines) its own length and color.")
+        self.mode_groups["lines"].append(g)
+        link = self.add_check(f, "Link all arms", "arms", "link")
+        link.toggled.connect(self._unlink_arms)
+        arm_rows = [self.add_slider(f, f"{name} length", "arms", a) for a, name in ARMS]
+        arm_rows += [self.add_hex(f, f"{name} color", "arms", "c" + a, allow_empty=True) for a, name in ARMS]
+        self.rules.append(lambda f=f: [f.setRowVisible(w, not self.target("arms")["link"]) for w in arm_rows])
+        self.rules.append(lambda g=g: g.setVisible(self.target("cross")["mode"] == "lines"
+                                                   and self.target("cross")["shape"] in ("cross", "t", "x")))
+        f.addRow(reset)
+
+        g, f, reset = self.group(lay2, "Fire expand", ["expand"], "quick_switch",
+                                 "While you hold left mouse in a game, the lines move outward. Visual only.")
+        self.mode_groups["lines"].append(g)
+        self.add_check(f, "Expand while firing", "expand", "on")
+        rows = [self.add_slider(f, "Expand by (px)", "expand", "px"), self.add_slider(f, "Expand time (ms)", "expand", "ms")]
+        self.rules.append(lambda f=f: [f.setRowVisible(w, self.target("expand")["on"]) for w in rows])
+        f.addRow(reset)
 
         g, f, reset = self.group(lay2, "Ring", ["ring"])
         self.mode_groups["lines"].append(g)
@@ -681,7 +720,8 @@ class SettingsWindow(QWidget):
         for text, ic, fn in (("Save share card...", "share_card", self._save_card),
                              ("Copy share card", "share_card", self._copy_card),
                              ("Import from image...", "qr_import", self._import_image),
-                             ("Paste image", "qr_import", self._paste_image)):
+                             ("Paste image", "qr_import", self._paste_image),
+                             ("Export SVG...", "shapes", self._export_svg)):
             b = QPushButton(icon(ic), tr(text))
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -997,6 +1037,22 @@ class SettingsWindow(QWidget):
     def _card(self):
         cross = self.target("cross")
         return sharing.share_card(cross, export_code(cross), self.ov.pixmap if cross["mode"] == "png" else None)
+
+    def _export_svg(self):
+        cross = self.target("cross")
+        svg = svg_export.to_svg(cross, self.ov.pixmap if cross["mode"] == "png" else None)
+        if not svg:
+            self.say(tr("Pick an image first."), True)
+            return
+        path, _ = QFileDialog.getSaveFileName(self, tr("Export SVG..."), "crosshair.svg", tr("SVG files (*.svg)"))
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(svg)
+            self.say(tr("SVG saved"))
+        except OSError as e:
+            self.say(str(e), True)
 
     def _save_card(self):
         path, _ = QFileDialog.getSaveFileName(self, tr("Save share card"), "nullpoint_crosshair.png", "PNG (*.png)")
@@ -1341,6 +1397,11 @@ class SettingsWindow(QWidget):
         row.addWidget(lp, 1)
         f.addRow(tr("Low-power mode"), row)
         f.addRow(QLabel(tr("Auto = on battery: slower game detection, rainbow / GIF animation paused.")))
+        rm = QCheckBox(tr("Reduce motion"))
+        rm.setChecked(self.cfg["reduce_motion"])
+        rm.setToolTip(tr("Turns off rainbow, GIF playback (first frame only) and the fire expand animation."))
+        rm.toggled.connect(lambda v: self._set_cfg("reduce_motion", v, "motion"))
+        f.addRow(rm)
         row = QHBoxLayout()
         pic = QLabel()
         pic.setPixmap(icon("cpu").pixmap(16, 16))
