@@ -4,15 +4,23 @@
 
 ## Features
 
-- **Crosshair builder**: color, outline, center dot, inner/outer lines, ring, rotation, shape presets, rainbow mode
+- **Crosshair builder**: color, outline, soft shadow, center dot, inner/outer lines (solid / dashed / dotted), ring,
+  rotation, 11 shapes (incl. Hexagon, Triangle, Diamond, thick Plus), static / gradient / rainbow color, colorblind presets
+- **Text crosshairs**: any 1-3 characters (+ • × ◆) in any font
 - **Image crosshairs**: PNG, animated GIF and SVG, with scale/opacity/rotation
 - **Pixel editor**: draw your own crosshair on a 16/32/64 grid and save it as PNG
 - **Per-game profiles**: auto-switches when you focus Fortnite, VALORANT, CS2, Apex, Overwatch 2, Roblox, Minecraft, Warzone, or any game you add
 - **True centering**: centers on the game window (windowed / borderless / stretched / multi-monitor) with X/Y fine-tune
-- **Share codes**: copy/paste a short code (or QR) to share crosshairs with friends
-- **Library & backup**: save crosshairs with thumbnails; export/import everything as one file
+- **Share codes**: copy/paste a short code, QR, share card PNG, `nullpoint://import/...` links, import from a QR screenshot
+- **Community gallery**: browse and import crosshairs from [`gallery/`](gallery/) ([add yours](gallery/CONTRIBUTING.md))
+- **Library & backup**: thumbnails, tags, search, favorites, compare mode; export/import everything as one file
+- **Workflow**: hold-to-hide (e.g. Mouse2), quick switcher (Alt+X), hotkey cheat sheet (hold F1), settings search,
+  copy a profile to other games
 - **Stream-safe mode**: hide the crosshair from OBS / Streamlabs capture, or show it
-- **Extras**: alignment test screen, dark/light theme, English/Arabic, update checker, undo/redo
+- **Tools**: eDPI calculator, resource monitor, low-power mode on battery, portable mode (USB stick)
+- **Extras**: OBS stream page, optional Discord Rich Presence, alignment test, black & white dark/light theme,
+  first-run wizard, undo/redo, crash reports that stay on your PC
+- **Languages**: English, العربية, Español, Português (Brasil), Français, Türkçe
 
 ## Safety
 
@@ -23,9 +31,16 @@ Use any third-party overlay at your own discretion, especially in ranked modes.
 
 ## Install
 
-**Option 1 — .exe:** download the latest `Nullpoint.exe` from [Releases](../../releases).
+**Option 1 — installer (recommended):** download `Nullpoint-Setup-x.y.z.exe` from [Releases](../../releases).
+Per-user install, no admin; Start menu shortcut, optional desktop shortcut and "Start with Windows".
 
-**Option 2 — from source (Windows 10/11, Python 3.11+):**
+**Option 2 — portable .exe:** download `Nullpoint.exe` from [Releases](../../releases). Put an empty
+`portable.txt` next to it to keep all settings in a `data` folder beside the exe.
+
+Windows may show **"Windows protected your PC"**: see [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md) for how to verify
+the download with its SHA-256 checksum and run it safely.
+
+**Option 3 — from source (Windows 10/11, Python 3.11+):**
 
 ```bat
 git clone https://github.com/yensobased1/nullpoint.git
@@ -41,13 +56,22 @@ run.bat
 | `F8` | Show / hide overlay |
 | `F9` | Open settings |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo in the settings window (paint strokes on the Editor tab) |
-| `Esc` | Close the alignment test |
+| `Esc` | Close the alignment test / quick switcher |
+| `Alt+X` | Quick switcher (8 library favorites, keys 1-8) |
+| hold `F1` | Hotkey cheat sheet |
+| hold (off by default) | Hide the crosshair while held, e.g. `Mouse2` for ADS |
 
 Hotkeys can be changed in **App Settings**.
 
 ## Settings location
 
-`%APPDATA%\Nullpoint\config.json`
+`%APPDATA%\Nullpoint\config.json` (or `data\` next to `Nullpoint.exe` in portable mode).
+
+## Translations
+
+Spanish, Portuguese (BR), French and Turkish are **machine-translated**. Fixes are very welcome:
+edit `crosshair/lang/<code>.json` (the keys are the English text, the values are your language) and open a pull
+request. `test_lang.py` checks that every language has every key.
 
 ## Details
 
@@ -143,7 +167,12 @@ Normal windows cannot draw over **exclusive** fullscreen. Fullscreen mode:
 
 The overlay re-asserts "topmost" every time focus changes, so it survives Alt+Tab.
 
-### Share codes (XH2, reads XH1)
+### Share codes (XH3, reads XH1 / XH2)
+
+XH3 adds: `h` shadow (on, size 0-6, opacity), `y` gradient (on, tip color), `l` line style
+(`s` solid / `d` dashed / `o` dotted, dash 1-10, gap 1-10), `x` text (%-encoded characters, size 8-96, bold,
+opacity, %-encoded font), mode `t` = text, shapes `6` hexagon, `3` triangle, `4` diamond, `p` plus.
+The table below lists the XH2 fields, which XH3 keeps unchanged.
 Our own format, not compatible with VALORANT codes. Example:
 
 ```
