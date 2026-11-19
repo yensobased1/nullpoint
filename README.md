@@ -1,5 +1,4 @@
-<p align="center"><img src="assets/banners/png/readme_header_dark.png" alt="Nullpoint"></p>
-<p align="center"><img src="assets/banners/png/features_banner_dark.png" alt="Features"></p>
+<p align="center"><img src="assets/banners/png/features_banner_dark.png" alt="Nullpoint - Simple, clean crosshair overlay for Windows"></p>
 
 ---
 
