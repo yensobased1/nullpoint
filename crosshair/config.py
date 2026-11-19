@@ -61,7 +61,8 @@ DEFAULT_CONFIG = {
     "visible": True,
     "show_only_in_games": True,  # UI: "Hide when game isn't focused"
     "fullscreen_mode": "Auto",  # Auto / Borderless / Exclusive
-    "hotkeys": {"toggle": "F8", "settings": "F9"},
+    # toggle/settings/switcher = global hotkeys; hold_hide/cheat = held keys (keyboard or Mouse2-5)
+    "hotkeys": {"toggle": "F8", "settings": "F9", "switcher": "Alt+X", "hold_hide": "", "cheat": "F1"},
     "stream_safe": False,
     "theme": "System",  # System / Dark / Light
     "language": "en",  # en / ar

@@ -8,11 +8,11 @@ import sys
 import time
 import winreg
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
-    QDialog, QFontComboBox, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
+    QCompleter, QDialog, QDialogButtonBox, QFontComboBox, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton,
     QScrollArea, QSlider, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
@@ -20,6 +20,7 @@ import config
 import library
 import overlay
 from editor import EditorTab
+from hotkeys import HOLD_CHOICES, hold_vk
 from preview import PixelView, PreviewPanel, render_image
 from share_code import FIELDS, ShareCodeError, export_code, import_code
 from ui import theme
@@ -132,6 +133,13 @@ class SettingsWindow(QWidget):
         top.addWidget(QLabel(tr("Mode")))
         top.addWidget(self.mode_box, 1)
         left.addLayout(top)
+        self.search_items = []  # (label, widget, tab index), filled as tabs are built
+        self.search = QLineEdit()
+        self.search.setPlaceholderText(tr("Search settings..."))
+        self.search.setAccessibleName(tr("Search settings"))
+        self.search.addAction(icon("search"), QLineEdit.LeadingPosition)
+        self.search.returnPressed.connect(lambda: self.jump_to(self.search.text()))
+        left.insertWidget(0, self.search)
 
         # Same draw call as the overlay window, on the same settings object.
         self.preview = PreviewPanel(lambda: (render_image(self.ov.draw, self.ov.c), self.ov.c), tr)
@@ -166,15 +174,52 @@ class SettingsWindow(QWidget):
         self.tabs.currentChanged.connect(
             lambda i: self.load_library() if self.tabs.widget(i) is self.library_page else None)
         root.addWidget(self.tabs, 1)
+        self.finish_search_index()
         self.refresh()
 
-    @staticmethod
-    def scroll(page):
+    def scroll(self, page):
+        self.index_page(page, self.tabs.count())  # the page is added as the next tab
         sc = QScrollArea()
         sc.setWidgetResizable(True)
         sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sc.setWidget(page)
         return sc
+
+    # ---------- settings search ----------
+    def index_page(self, page, tab):
+        for g in page.findChildren(QGroupBox):
+            self.search_items.append((g.title(), g, tab))
+        for form in page.findChildren(QFormLayout):
+            for r in range(form.rowCount()):
+                lab, fld = form.itemAt(r, QFormLayout.LabelRole), form.itemAt(r, QFormLayout.FieldRole)
+                if lab and isinstance(lab.widget(), QLabel) and lab.widget().text() and fld:
+                    w = fld.widget() or (fld.layout().itemAt(0).widget() if fld.layout() and fld.layout().count() else None)
+                    if w:
+                        self.search_items.append((lab.widget().text(), w, tab))
+
+    def finish_search_index(self):
+        comp = QCompleter(sorted({label for label, _, _ in self.search_items}), self)
+        comp.setCaseSensitivity(Qt.CaseInsensitive)
+        comp.setFilterMode(Qt.MatchContains)
+        comp.activated.connect(self.jump_to)
+        self.search.setCompleter(comp)
+
+    def jump_to(self, text):
+        """Open the setting's tab, scroll to it and flash a border around it."""
+        text = text.strip().lower()
+        hit = next((x for x in self.search_items if x[0].lower() == text), None) or \
+            next((x for x in self.search_items if text and text in x[0].lower()), None)
+        if not hit:
+            return
+        _, w, tab = hit
+        self.tabs.setCurrentIndex(tab)
+        area = self.tabs.widget(tab)
+        if isinstance(area, QScrollArea):
+            area.ensureWidgetVisible(w, 0, 80)
+        old = w.styleSheet()
+        w.setStyleSheet(old + f"border: 2px solid {theme.tokens['accent']};")
+        QTimer.singleShot(1500, lambda: w.setStyleSheet(old))
+        w.setFocus()
 
     # ---------- data access ----------
     def profile(self):
@@ -517,7 +562,8 @@ class SettingsWindow(QWidget):
         lay.addWidget(self.games_table)
         row = QHBoxLayout()
         for text, fn in (("Browse .exe...", self._add_game_browse), ("Type name...", self._add_game_name),
-                         ("Remove", self._remove_game), ("Rename profile...", self._rename_profile)):
+                         ("Remove", self._remove_game), ("Rename profile...", self._rename_profile),
+                         ("Copy to...", self._copy_to)):
             b = QPushButton(tr(text))
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -594,6 +640,17 @@ class SettingsWindow(QWidget):
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.addWidget(QLabel(tr("Click a crosshair to apply it to the current profile.")))
+        top = QHBoxLayout()
+        self.lib_search = QLineEdit()
+        self.lib_search.setPlaceholderText(tr("Search name or tag"))
+        self.lib_search.setAccessibleName(tr("Search library"))
+        self.lib_search.addAction(icon("search"), QLineEdit.LeadingPosition)
+        self.lib_search.textChanged.connect(lambda _: self.load_library())
+        top.addWidget(self.lib_search, 1)
+        self.chip_row = QHBoxLayout()
+        top.addLayout(self.chip_row)
+        lay.addLayout(top)
+        self.active_tags = set()
         self.lib_list = QListWidget()
         self.lib_list.setViewMode(QListWidget.IconMode)
         self.lib_list.setIconSize(QSize(64, 64))
@@ -605,7 +662,7 @@ class SettingsWindow(QWidget):
         row = QHBoxLayout()
         for text, fn in (("Save current to library", self._lib_save), ("Apply", self._lib_apply),
                          ("Rename", self._lib_rename), ("Duplicate", self._lib_duplicate), ("Delete", self._lib_delete),
-                         ("Compare...", self._compare)):
+                         ("Favorite", self._lib_fav), ("Tags...", self._lib_tags), ("Compare...", self._compare)):
             b = QPushButton(tr(text))
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -632,10 +689,49 @@ class SettingsWindow(QWidget):
         return QIcon(QPixmap.fromImage(icon))
 
     def load_library(self):
+        """Favorites first, filtered by the search text (name or tag) and the selected tag chips."""
         self.lib_entries = library.load()
+        q = self.lib_search.text().strip().lower()
+        tags = sorted({t for e in self.lib_entries for t in e["tags"]}, key=str.lower)
+        self.active_tags &= set(tags)
+        while self.chip_row.count():
+            self.chip_row.takeAt(0).widget().deleteLater()
+        for t in tags:
+            b = QPushButton(icon("tags"), t)
+            b.setCheckable(True)
+            b.setChecked(t in self.active_tags)
+            b.toggled.connect(lambda on, t=t: (self.active_tags.add(t) if on else self.active_tags.discard(t),
+                                               self.load_library()))
+            self.chip_row.addWidget(b)
         self.lib_list.clear()
-        for e in self.lib_entries:
-            self.lib_list.addItem(QListWidgetItem(self.thumbnail(e["crosshair"], e["image"]), e["name"]))
+        order = sorted(range(len(self.lib_entries)), key=lambda i: not self.lib_entries[i]["fav"])
+        for i in order:
+            e = self.lib_entries[i]
+            text = " ".join([e["name"]] + e["tags"]).lower()
+            if (q and q not in text) or not self.active_tags <= set(e["tags"]):
+                continue
+            item = QListWidgetItem(self.thumbnail(e["crosshair"], e["image"]), ("★ " if e["fav"] else "") + e["name"])
+            item.setData(Qt.UserRole, i)
+            item.setToolTip(", ".join(e["tags"]))
+            self.lib_list.addItem(item)
+
+    def _lib_fav(self):
+        row = self._lib_selected()
+        if row is not None:
+            self.lib_entries[row]["fav"] = not self.lib_entries[row]["fav"]
+            library.save(self.lib_entries)
+            self.load_library()
+
+    def _lib_tags(self):
+        row = self._lib_selected()
+        if row is None:
+            return
+        text, ok = QInputDialog.getText(self, tr("Tags"), tr("Tags (comma separated):"),
+                                        text=", ".join(self.lib_entries[row]["tags"]))
+        if ok:
+            self.lib_entries[row]["tags"] = [t.strip()[:24] for t in text.split(",") if t.strip()][:12]
+            library.save(self.lib_entries)
+            self.load_library()
 
     def _compare(self):
         """Side by side: the current crosshair vs a library item or a pasted share code. Shared zoom/background."""
@@ -655,7 +751,8 @@ class SettingsWindow(QWidget):
         row.addWidget(pick, 1)
         row.addWidget(code, 2)
         v.addLayout(row)
-        sel = self.lib_list.currentRow()
+        sel = self._lib_selected() if hasattr(self, "lib_entries") else None
+        sel = -1 if sel is None else sel
         pick.setCurrentIndex(sel if 0 <= sel < len(entries) else len(entries))
 
         def other():
@@ -685,8 +782,9 @@ class SettingsWindow(QWidget):
         dlg.exec()
 
     def _lib_selected(self):
-        row = self.lib_list.currentRow()
-        return row if 0 <= row < len(self.lib_entries) else None
+        item = self.lib_list.currentItem()
+        row = item.data(Qt.UserRole) if item else None
+        return row if row is not None and 0 <= row < len(self.lib_entries) else None
 
     def _lib_save(self):
         name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"), text=self.cfg["active_profile"])
@@ -871,11 +969,28 @@ class SettingsWindow(QWidget):
         f.addRow(tr("Fullscreen mode"), fs)
         f.addRow(QLabel(tr("Exclusive fullscreen can't be drawn over by any normal window. "
                            "Use Windowed Fullscreen / Borderless in the game.")))
-        for key, label in (("toggle", "Toggle overlay hotkey"), ("settings", "Open settings hotkey")):
+        for key, label in (("toggle", "Toggle overlay hotkey"), ("settings", "Open settings hotkey"),
+                           ("switcher", "Quick switcher hotkey")):
             ed = QKeySequenceEdit(QKeySequence(self.cfg["hotkeys"][key]))
             ed.setMaximumSequenceLength(1)
             ed.editingFinished.connect(lambda k=key, e=ed: self._set_hotkey(k, e))
             f.addRow(tr(label), ed)
+        for key, label, ic in (("hold_hide", "Hide while held", "hide"), ("cheat", "Hotkey cheat sheet (hold)", "keyboard")):
+            box = QComboBox()
+            box.setEditable(True)
+            box.addItems(HOLD_CHOICES)
+            box.setCurrentText(self.cfg["hotkeys"].get(key, ""))
+            box.setAccessibleName(tr(label))
+            box.lineEdit().editingFinished.connect(lambda k=key, b=box: self._set_hold_key(k, b.currentText()))
+            box.activated.connect(lambda _i, k=key, b=box: self._set_hold_key(k, b.currentText()))
+            pic = QLabel()
+            pic.setPixmap(icon(ic).pixmap(16, 16))
+            row = QHBoxLayout()
+            row.addWidget(pic)
+            row.addWidget(box, 1)
+            f.addRow(tr(label), row)
+        f.addRow(QLabel(tr("Held keys: empty = off. Mouse2-5, Shift, Ctrl, Alt, F1-F24, A-Z, 0-9. "
+                           "The game still gets the key.")))
         start = QCheckBox()
         start.setChecked(startup_enabled())
         start.toggled.connect(self._set_startup)
@@ -1032,6 +1147,39 @@ class SettingsWindow(QWidget):
             self.on_change("general")
             self.refresh()
 
+    def _copy_to(self):
+        """Copy the active profile's crosshair + position settings onto other profiles."""
+        src = self.cfg["active_profile"]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Copy to..."))
+        dlg.setWindowIcon(icon("copy_to"))
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(f"{tr('Copy crosshair and position from')} '{src}' {tr('to')}:"))
+        lst = QListWidget()
+        for name in sorted(self.cfg["profiles"]):
+            if name != src:
+                it = QListWidgetItem(name)
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+                it.setCheckState(Qt.Unchecked)
+                lst.addItem(it)
+        v.addWidget(lst)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        targets = [lst.item(i).text() for i in range(lst.count()) if lst.item(i).checkState() == Qt.Checked]
+        self.copy_profile(src, targets)
+
+    def copy_profile(self, src, targets):
+        p = self.cfg["profiles"][src]
+        for name in targets:
+            for k in ("crosshair", "png_path", "offset_x", "offset_y", "monitor", "stretch", "anim_paused"):
+                self.cfg["profiles"][name][k] = copy.deepcopy(p[k])
+        self.on_change("general")
+        self.say(f"{tr('Copied to')}: {', '.join(targets) or '-'}")
+
     def _rename_profile(self):
         old = self.cfg["active_profile"]
         if old == "Default":
@@ -1059,6 +1207,14 @@ class SettingsWindow(QWidget):
         if seq and seq != self.cfg["hotkeys"][key]:
             self.cfg["hotkeys"][key] = seq
             self.on_change("hotkeys")
+
+    def _set_hold_key(self, key, text):
+        text = text.strip()
+        if text and hold_vk(text) is None:
+            self.say(f"{tr('Unknown key')}: {text}", True)
+            return
+        self.cfg["hotkeys"][key] = text
+        self.on_change("general")
 
     def _set_startup(self, on):
         try:

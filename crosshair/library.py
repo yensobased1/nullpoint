@@ -22,7 +22,9 @@ def clean(data):
     if not isinstance(data, list):
         return []
     return [{"name": str(e.get("name", "Crosshair"))[:60], "crosshair": clean_crosshair(e.get("crosshair")),
-             "image": str(e.get("image", ""))} for e in data if isinstance(e, dict)]
+             "image": str(e.get("image", "")),
+             "tags": [str(t)[:24] for t in e.get("tags", []) if str(t).strip()][:12] if isinstance(e.get("tags"), list) else [],
+             "fav": e.get("fav") is True} for e in data if isinstance(e, dict)]
 
 
 def save(entries):
@@ -33,7 +35,7 @@ def save(entries):
     os.replace(tmp, LIBRARY_PATH)
 
 
-def add(name, crosshair, image=""):
+def add(name, crosshair, image="", tags=None):
     entries = load()
-    entries.append({"name": name, "crosshair": crosshair, "image": image})
+    entries.append({"name": name, "crosshair": crosshair, "image": image, "tags": tags or [], "fav": False})
     save(entries)

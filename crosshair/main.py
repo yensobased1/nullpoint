@@ -21,6 +21,9 @@ import config
 import game_detect
 from overlay import Overlay
 from alignment import AlignmentWindow
+from hotkeys import hold_vk, is_down, to_win_hotkey
+from popups import InfoCard, QuickSwitcher
+import library
 from settings_ui import SettingsWindow, app_icon, asset, migrate_startup, screens
 from ui import i18n, theme
 from ui.i18n import tr
@@ -29,10 +32,9 @@ from updates import VERSION, UpdateChecker
 user32 = ctypes.windll.user32
 user32.RegisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_uint, ctypes.c_uint]
 user32.UnregisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int]
-MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT = 1, 2, 4, 8, 0x4000
-HOTKEY_IDS = {"toggle": 1, "settings": 2}
-SPECIAL_VK = {Qt.Key_Insert: 0x2D, Qt.Key_Delete: 0x2E, Qt.Key_Home: 0x24, Qt.Key_End: 0x23,
-              Qt.Key_PageUp: 0x21, Qt.Key_PageDown: 0x22, Qt.Key_Pause: 0x13, Qt.Key_ScrollLock: 0x91}
+HOTKEY_IDS = {"toggle": 1, "settings": 2, "switcher": 3}
+HOTKEY_LABELS = {"toggle": "Toggle overlay", "settings": "Open settings", "switcher": "Quick switcher",
+                 "hold_hide": "Hide while held", "cheat": "Show this cheat sheet (hold)"}
 # Shell windows that grab focus when you click the tray: never "the current game".
 SHELL_EXES = {"explorer.exe", "searchhost.exe", "shellexperiencehost.exe", "startmenuexperiencehost.exe",
               "textinputhost.exe", "lockapp.exe", ""}
@@ -44,30 +46,6 @@ def log_errors(*exc):
     with open(os.path.join(config.CONFIG_DIR, "error.log"), "a", encoding="utf-8") as f:
         f.write("".join(traceback.format_exception(*exc)) + "\n")
     sys.__excepthook__(*exc)
-
-
-def to_win_hotkey(text):
-    """'Ctrl+Shift+F8' -> (modifiers, virtual key) or None if unsupported."""
-    seq = QKeySequence(text)
-    if seq.count() == 0:
-        return None
-    combo = seq[0]
-    key, mods = combo.key(), combo.keyboardModifiers()
-    kv = key.value
-    if Qt.Key_F1.value <= kv <= Qt.Key_F24.value:
-        vk = 0x70 + kv - Qt.Key_F1.value
-    elif Qt.Key_A.value <= kv <= Qt.Key_Z.value or Qt.Key_0.value <= kv <= Qt.Key_9.value:
-        vk = kv  # same codes as Windows VKs
-    elif key in SPECIAL_VK:
-        vk = SPECIAL_VK[key]
-    else:
-        return None
-    m = MOD_NOREPEAT
-    for qt_mod, win_mod in ((Qt.ControlModifier, MOD_CONTROL), (Qt.AltModifier, MOD_ALT),
-                            (Qt.ShiftModifier, MOD_SHIFT), (Qt.MetaModifier, MOD_WIN)):
-        if mods & qt_mod:
-            m |= win_mod
-    return m, vk
 
 
 def tray_icon():
@@ -106,6 +84,11 @@ class App:
         self.last_external = None  # (exe, title) of the last focused non-shell window, for "Add current game"
         self.native = (0, 0)
         self.align = None  # alignment test window while open
+        self.held_hidden = False  # hide-while-held key is down
+        self.card = InfoCard()
+        self.switcher = None
+        self.hold_timer = QTimer(interval=40)  # polls only the hold keys' up/down state
+        self.hold_timer.timeout.connect(self.poll_hold_keys)
         self.update_url = ""
 
         self.save_timer = QTimer(singleShot=True, interval=300)
@@ -133,6 +116,7 @@ class App:
         self.timer.timeout.connect(self.poll)
         self.timer.start()
         self.poll()
+        self.hold_timer.start()
 
     def build_menu(self):
         menu = QMenu()
@@ -193,7 +177,8 @@ class App:
         if abs(self.stretch_factor() - self.ov.sx) > 1e-9:
             self.ov.set_crosshair(p["crosshair"], p["png_path"], self.stretch_factor(), p["anim_paused"])
         self.ov.set_center(cx + p["offset_x"], cy + p["offset_y"])
-        want = bool(self.align) or (self.cfg["visible"] and (self.game_active or not self.cfg["show_only_in_games"]))
+        want = bool(self.align) or (self.cfg["visible"] and not self.held_hidden
+                                    and (self.game_active or not self.cfg["show_only_in_games"]))
         if want != self.ov.isVisible():
             self.ov.setVisible(want)
             if want:
@@ -321,8 +306,48 @@ class App:
             self.notify(f"{tr('Hotkey not available')}: {', '.join(bad)}. "
                         + tr("Use F1-F24, A-Z, 0-9 or Insert/Home/End/PgUp/PgDn with modifiers."))
 
+    def poll_hold_keys(self):
+        hide = hold_vk(self.cfg["hotkeys"].get("hold_hide"))
+        down = bool(hide) and is_down(hide)
+        if down != self.held_hidden:
+            self.held_hidden = down
+            self.place()
+        cheat = hold_vk(self.cfg["hotkeys"].get("cheat"))
+        show = bool(cheat) and is_down(cheat)
+        if show and not self.card.isVisible():
+            lines = [f"{tr(HOTKEY_LABELS[k])}:  {v}" for k, v in self.cfg["hotkeys"].items() if v and k in HOTKEY_LABELS]
+            self.card.show_lines(tr("Nullpoint hotkeys"), lines, self.center())
+        elif not show and self.card.isVisible():
+            self.card.hide()
+
+    def open_switcher(self):
+        if self.switcher and self.switcher.isVisible():
+            return
+        from settings_ui import SettingsWindow
+        favs = [e for e in library.load() if e.get("fav")][:8]
+        prev = game_detect.foreground()[0]
+        self.switcher = QuickSwitcher(favs, [SettingsWindow.thumbnail(e["crosshair"], e["image"]) for e in favs],
+                                      self.center(), prev)
+        self.switcher.picked.connect(lambda i: self.apply_entry(favs[i]))
+        self.switcher.show()
+        self.switcher.raise_()
+        self.switcher.activateWindow()
+
+    def apply_entry(self, e):
+        """Library entry -> active profile (used by the quick switcher)."""
+        p = self.profile()
+        p["crosshair"] = copy.deepcopy(e["crosshair"])
+        if e["image"]:
+            p["png_path"] = e["image"]
+        self.apply()
+        self.save_timer.start()
+        if self.settings:
+            self.settings.refresh()
+
     def on_hotkey(self, hid):
-        if hid == HOTKEY_IDS["toggle"]:
+        if hid == HOTKEY_IDS["switcher"]:
+            self.open_switcher()
+        elif hid == HOTKEY_IDS["toggle"]:
             self.toggle()
         elif hid == HOTKEY_IDS["settings"]:
             self.open_settings()
