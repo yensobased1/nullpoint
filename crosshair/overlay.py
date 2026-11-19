@@ -51,7 +51,8 @@ def dash_segments(length, style, thick):
     """[(offset from the center side, length)] for Solid / Dashed / Dotted lines (whole pixels)."""
     if style["kind"] == "solid":
         return [(0, length)]
-    dash = thick if style["kind"] == "dotted" else style["dash"]  # dots are square
+    # Dots are square (thick x thick). Dashes are always at least 1 px longer, so they never look like dots.
+    dash = thick if style["kind"] == "dotted" else max(style["dash"], thick + 1)
     out, pos = [], 0
     while pos < length:
         out.append((pos, min(dash, length - pos)))

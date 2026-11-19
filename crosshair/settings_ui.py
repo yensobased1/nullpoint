@@ -164,8 +164,10 @@ class SettingsWindow(QWidget):
             QShortcut(QKeySequence(seq), self, activated=lambda b_=back: self.undo_redo(b_))
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.scroll(self._crosshair_tab()), tr("Crosshair"))
-        self.tabs.addTab(self.scroll(self._image_tab()), tr("Image"))
+        self.crosshair_page = self.scroll(self._crosshair_tab())
+        self.tabs.addTab(self.crosshair_page, tr("Crosshair"))
+        self.image_page = self.scroll(self._image_tab())
+        self.tabs.addTab(self.image_page, tr("Image"))
         self.editor = EditorTab(self.apply_image, tr)
         self.tabs.addTab(self.editor, tr("Editor"))
         self.library_page = self._library_tab()
@@ -279,6 +281,20 @@ class SettingsWindow(QWidget):
             self.on_change("profile")
             self.refresh()
 
+    def update_visibility(self):
+        """Show only what the current Mode uses: Lines -> shape/lines/dot/ring, Text -> text, Image -> Image tab."""
+        mode = self.target("cross")["mode"]
+        for m, groups in self.mode_groups.items():
+            for g in groups:
+                g.setVisible(m == mode)
+        for rule in self.rules:
+            rule()
+        cur = self.tabs.currentWidget()
+        self.tabs.setTabVisible(self.tabs.indexOf(self.crosshair_page), mode != "png")
+        self.tabs.setTabVisible(self.tabs.indexOf(self.image_page), mode == "png")
+        if cur in (self.crosshair_page, self.image_page):  # stay on the mode's own tab instead of jumping away
+            self.tabs.setCurrentWidget(self.image_page if mode == "png" else self.crosshair_page)
+
     def set_value(self, sec, key, val):
         if self.loading or self.target(sec)[key] == val:
             return
@@ -286,6 +302,8 @@ class SettingsWindow(QWidget):
         self.target(sec)[key] = val
         self.on_change("crosshair")
         self.preview.update()
+        if sec in ("style", "rainbow", "gradient"):
+            self.update_visibility()
         if sec in ("stretch", "profile"):
             self.update_display_info()
 
@@ -324,6 +342,7 @@ class SettingsWindow(QWidget):
         row.addWidget(s, 1)
         row.addWidget(n)
         form.addRow(tr(label), row)
+        return row
 
     def add_check(self, form, label, sec, key):
         c = QCheckBox()
@@ -368,6 +387,7 @@ class SettingsWindow(QWidget):
         self.target("gradient")["on"] = mode == "gradient"
         self.on_change("crosshair")
         self.preview.update()
+        self.update_visibility()
 
     def _colorblind(self, main, outline):
         self.record()
@@ -419,6 +439,8 @@ class SettingsWindow(QWidget):
         return g, form, btn
 
     def _crosshair_tab(self):
+        self.mode_groups = {"lines": [], "text": []}  # groups shown only in that Mode
+        self.rules = []  # small show/hide rules re-run after every change
         page = QWidget()
         grid = QGridLayout(page)
         lay, lay2 = QVBoxLayout(), QVBoxLayout()
@@ -430,9 +452,13 @@ class SettingsWindow(QWidget):
         self.add_combo(f, "Shape", "cross", "shape", SHAPES)
         self.add_slider(f, "Line rotation", "cross", "rot", 0, 90)
         self.add_combo(f, "Line style", "style", "kind", LINE_STYLES)
-        self.add_slider(f, "Dash length", "style", "dash", 1, 10)
-        self.add_slider(f, "Dash gap", "style", "gap", 1, 10)
+        dash = self.add_slider(f, "Dash length", "style", "dash", 1, 10)
+        gap = self.add_slider(f, "Dash gap", "style", "gap", 1, 10)
         f.addRow(reset)
+        kind = lambda: self.target("style")["kind"]
+        self.rules += [lambda f=f: f.setRowVisible(dash, kind() == "dashed"),
+                       lambda f=f: f.setRowVisible(gap, kind() != "solid")]
+        self.mode_groups["lines"].append(g)
 
         g, f, reset = self.group(lay, "Color", ["color", "colors", "rainbow", "gradient"])
         swatches = QHBoxLayout()
@@ -455,9 +481,9 @@ class SettingsWindow(QWidget):
         same = self.add_check(f, "Use same color for all", "colors", "same")
         part_rows = [self.add_hex(f, label, "colors", key) for key, label in (
             ("lines", "Lines color"), ("dot", "Center dot color"), ("ring", "Ring color"), ("outline", "Outline color"))]
-        same.toggled.connect(lambda on: [f.setRowVisible(w, not on) for w in part_rows])
+        same.toggled.connect(lambda on, f=f: [f.setRowVisible(w, not on) for w in part_rows])
         same.toggled.connect(self._split_colors)
-        self.loaders.append(lambda: [f.setRowVisible(w, not self.target("colors")["same"]) for w in part_rows])
+        self.loaders.append(lambda f=f: [f.setRowVisible(w, not self.target("colors")["same"]) for w in part_rows])
         mode = QComboBox()
         for val, text in (("static", "Static"), ("gradient", "Gradient"), ("rainbow", "Rainbow")):
             mode.addItem(icon("gradient") if val == "gradient" else QIcon(), tr(text), val)
@@ -465,9 +491,12 @@ class SettingsWindow(QWidget):
         self.loaders.append(lambda: mode.setCurrentIndex(
             2 if self.target("rainbow")["on"] else 1 if self.target("gradient")["on"] else 0))
         f.addRow(tr("Color mode"), mode)
-        self.add_hex(f, "Gradient tip color", "gradient", "c2")
-        self.add_slider(f, "Rainbow speed", "rainbow", "speed")
-        self.add_slider(f, "Rainbow saturation", "rainbow", "sat", dec=2)
+        tip = self.add_hex(f, "Gradient tip color", "gradient", "c2")
+        speed = self.add_slider(f, "Rainbow speed", "rainbow", "speed")
+        sat = self.add_slider(f, "Rainbow saturation", "rainbow", "sat", dec=2)
+        rainbow = lambda: self.target("rainbow")["on"]
+        self.rules += [lambda f=f: f.setRowVisible(tip, self.target("gradient")["on"] and not rainbow()),
+                       lambda f=f: f.setRowVisible(speed, rainbow()), lambda f=f: f.setRowVisible(sat, rainbow())]
         cb = QGridLayout()
         for i, (name, main, outline) in enumerate(COLORBLIND):
             b = QPushButton(icon("colorblind"), tr(name))
@@ -490,8 +519,9 @@ class SettingsWindow(QWidget):
         self.add_slider(f, "Shadow opacity", "shadow", "alpha", dec=2)
         f.addRow(reset)
 
-        g, f, reset = self.group(lay2, "Text crosshair", ["text"], "text_crosshair",
+        g, f, reset = self.group(lay, "Text crosshair", ["text"], "text_crosshair",
                                  "Used when Mode is set to Text: 1-3 characters, e.g. + • × ◆")
+        self.mode_groups["text"].append(g)
         chars = QLineEdit()
         chars.setMaxLength(3)
         chars.setAccessibleName(tr("Characters"))
@@ -513,6 +543,7 @@ class SettingsWindow(QWidget):
         f.addRow(reset)
 
         g, f, reset = self.group(lay2, "Center Dot", ["dot"])
+        self.mode_groups["lines"].append(g)
         self.add_check(f, "Show", "dot", "on")
         self.add_slider(f, "Size", "dot", "size")
         self.add_slider(f, "Opacity", "dot", "alpha", dec=2)
@@ -520,6 +551,7 @@ class SettingsWindow(QWidget):
 
         for sec, title in (("inner", "Inner Lines"), ("outer", "Outer Lines")):
             g, f, reset = self.group(lay2, title, [sec])
+            self.mode_groups["lines"].append(g)
             self.add_check(f, "Show", sec, "on")
             self.add_slider(f, "Length", sec, "len")
             self.add_slider(f, "Thickness", sec, "thick")
@@ -529,7 +561,8 @@ class SettingsWindow(QWidget):
             self.add_slider(f, "Vertical length", sec, "vlen")
             f.addRow(reset)
 
-        g, f, reset = self.group(lay, "Ring", ["ring"])
+        g, f, reset = self.group(lay2, "Ring", ["ring"])
+        self.mode_groups["lines"].append(g)
         self.add_check(f, "Show ring", "ring", "on")
         self.add_slider(f, "Radius", "ring", "radius")
         self.add_slider(f, "Thickness", "ring", "thick")
@@ -1293,6 +1326,7 @@ class SettingsWindow(QWidget):
         self.profile_box.setCurrentText(self.cfg["active_profile"])
         self.profile_box.blockSignals(False)
         self.mode_box.setCurrentIndex(MODES.index(self.target("cross")["mode"]))
+        self.update_visibility()
         for load in self.loaders:
             load()
         self.games_table.setRowCount(0)

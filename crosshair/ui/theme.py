@@ -54,7 +54,11 @@ QTextBrowser, QTextEdit, QPlainTextEdit {{
 QToolButton {{ background: {panel}; border: 1px solid {border}; border-radius: {radius}; padding: 4px; }}
 QToolButton:hover {{ border-color: {accent}; }}
 QToolButton:checked, QToolButton:pressed {{ background: {accent}; color: {accent_text}; }}
-QComboBox QAbstractItemView {{ background: {input}; selection-background-color: {accent}; }}
+QComboBox QAbstractItemView {{ background: {input}; selection-background-color: {accent};
+                               selection-color: {accent_text}; outline: 0; }}
+QComboBox QAbstractItemView::item {{ padding: 4px 6px; border: 0; }}
+QComboBox QAbstractItemView::item:hover, QComboBox QAbstractItemView::item:selected {{
+    background: {accent}; color: {accent_text}; }}
 QHeaderView::section {{ background: {panel}; border: 0; border-bottom: 1px solid {border}; padding: 4px; }}
 QListWidget::item:selected, QTableWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
 QSlider::groove:horizontal {{ height: 4px; background: {border}; border-radius: 2px; }}

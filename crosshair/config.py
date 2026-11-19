@@ -32,7 +32,7 @@ DEFAULT_CROSSHAIR = {
     "rainbow": {"on": False, "speed": 5, "sat": 1.0},
     "shadow": {"on": False, "size": 2, "alpha": 0.5},  # soft dark halo under the outline
     "gradient": {"on": False, "c2": "FFFFFF"},  # lines: main/lines color at the center -> c2 at the tips
-    "style": {"kind": "solid", "dash": 2, "gap": 1},  # solid / dashed / dotted
+    "style": {"kind": "solid", "dash": 4, "gap": 2},  # solid / dashed / dotted
     "text": {"chars": "+", "font": "", "size": 24, "bold": True, "alpha": 1.0},  # mode "text"
 }
 

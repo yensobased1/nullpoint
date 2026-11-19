@@ -14,7 +14,7 @@ import copy
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QTimer, Qt, QUrl
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPixmap
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 import config
@@ -67,6 +67,7 @@ class App:
         self.qt = QApplication(sys.argv)
         self.qt.setQuitOnLastWindowClosed(False)
         self.qt.setApplicationName("Nullpoint")
+        self.qt.setStyle("Fusion")  # the native Windows 11 style paints the system accent color (e.g. purple)
         self.qt.setWindowIcon(app_icon())
         if config.migrate_old_folder():
             migrate_startup()
@@ -133,7 +134,13 @@ class App:
         QTimer.singleShot(800, self.onboarding)
 
     def qss(self):
-        return theme.use(self.cfg["theme"], self.cfg["ui_scale"], self.cfg["large_text"])
+        qss = theme.use(self.cfg["theme"], self.cfg["ui_scale"], self.cfg["large_text"])
+        pal = self.qt.palette()  # selection colors in lists / popups follow the theme, not Windows
+        for role, key in ((QPalette.Highlight, "accent"), (QPalette.HighlightedText, "accent_text"),
+                          (QPalette.Accent, "accent")):
+            pal.setColor(role, QColor(theme.tokens[key]))
+        self.qt.setPalette(pal)
+        return qss
 
     def onboarding(self):
         """New install: wizard. Update: what's new, once."""

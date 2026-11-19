@@ -104,6 +104,15 @@ class RenderTests(unittest.TestCase):
         cr["style"].update(kind="dashed", dash=2, gap=1)
         self.check(cr, rect_set((4, 0, 2, 1), (7, 0, 2, 1), (-5, 0, 2, 1), (-8, 0, 2, 1)))
 
+    def test_dashed_never_looks_like_dotted(self):
+        sets = []
+        for kind in ("dashed", "dotted"):
+            cr = cross(inner__len=12, inner__thick=2, inner__gap=2)
+            cr["style"].update(kind=kind, dash=2, gap=2)  # dash 2 == thickness 2: used to be identical
+            img, c = draw(cr)
+            sets.append(pixels(img, c, is_fill))
+        self.assertNotEqual(sets[0], sets[1])
+
     def test_plus_is_solid_through_center(self):
         cr = cross(inner__len=2, inner__thick=1, inner__gap=1)
         cr["shape"] = "plus"
