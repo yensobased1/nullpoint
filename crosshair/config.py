@@ -79,6 +79,10 @@ DEFAULT_CONFIG = {
     "discord_client_id": "",
     "low_power": "Auto",  # Auto (on battery) / On / Off: slower polling, animations paused
     "edpi_saved": [],
+    "wizard_done": False,
+    "last_version": "",  # shows the changelog once after an update
+    "ui_scale": 100,  # settings text scale: 100 / 125 / 150
+    "large_text": False,
 }
 
 

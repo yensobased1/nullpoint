@@ -22,6 +22,8 @@ import overlay
 import sharing
 from editor import EditorTab
 import tools
+import onboarding
+from updates import VERSION
 from hotkeys import HOLD_CHOICES, hold_vk
 from preview import PixelView, PreviewPanel, render_image
 from share_code import FIELDS, ShareCodeError, export_code, import_code
@@ -297,6 +299,7 @@ class SettingsWindow(QWidget):
             lo, hi = field_range(sec, key)
         scale = 10 ** dec
         s = QSlider(Qt.Horizontal)
+        s.setAccessibleName(tr(label))
         s.setRange(round(lo * scale), round(hi * scale))
         n = QDoubleSpinBox() if dec else QSpinBox()
         n.setRange(lo, hi)
@@ -304,6 +307,7 @@ class SettingsWindow(QWidget):
             n.setDecimals(dec)
             n.setSingleStep(1 / scale)
         n.setObjectName("num")  # QSS hides its arrows (see ui/theme.py)
+        n.setAccessibleName(tr(label))
         n.setAlignment(Qt.AlignRight)
         n.setFixedWidth(60)
 
@@ -323,6 +327,7 @@ class SettingsWindow(QWidget):
 
     def add_check(self, form, label, sec, key):
         c = QCheckBox()
+        c.setAccessibleName(tr(label))
         c.toggled.connect(lambda v: self.set_value(sec, key, v))
         self.loaders.append(lambda: c.setChecked(self.target(sec)[key]))
         form.addRow(tr(label), c)
@@ -331,6 +336,7 @@ class SettingsWindow(QWidget):
     def add_combo(self, form, label, sec, key, items):
         """items: [(stored value, English label)]."""
         box = QComboBox()
+        box.setAccessibleName(tr(label))
         for val, text in items:
             box.addItem(tr(text), val)
         box.currentIndexChanged.connect(lambda i: self.set_value(sec, key, box.itemData(i)))
@@ -342,6 +348,7 @@ class SettingsWindow(QWidget):
         ed = QLineEdit()
         ed.setMaxLength(7)
         ed.setFixedWidth(80)
+        ed.setAccessibleName(tr(label))
 
         def changed(text):
             h = text.strip().lstrip("#").upper()
@@ -1218,6 +1225,36 @@ class SettingsWindow(QWidget):
             row.addWidget(QLabel(tr("Running in portable mode.")))
         row.addStretch()
         f.addRow(tr("Portable mode"), row)
+        scale = QComboBox()
+        for v in (100, 125, 150):
+            scale.addItem(f"{v} %", v)
+        scale.setCurrentIndex(max(0, scale.findData(self.cfg["ui_scale"])))
+        scale.setAccessibleName(tr("UI text scale"))
+        scale.currentIndexChanged.connect(lambda i: self._set_cfg("ui_scale", scale.itemData(i), "theme"))
+        large = QCheckBox(tr("Large text"))
+        large.setChecked(self.cfg["large_text"])
+        large.toggled.connect(lambda v: self._set_cfg("large_text", v, "theme"))
+        row = QHBoxLayout()
+        pic = QLabel()
+        pic.setPixmap(icon("accessibility").pixmap(16, 16))
+        for w in (pic, scale, large):
+            row.addWidget(w)
+        row.addStretch()
+        f.addRow(tr("UI text scale"), row)
+        row = QHBoxLayout()
+        for text, ic, fn in (("Run setup wizard", "wizard", self.app.run_wizard),
+                             ("What's new", "changelog", lambda: onboarding.show_changelog(self, VERSION)),
+                             ("Send feedback", "feedback", lambda: onboarding.open_feedback(VERSION, self.cfg["active_profile"]))):
+            b = QPushButton(icon(ic), tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch()
+        f.addRow(tr("Help"), row)
+        note = QLabel(tr("Send feedback opens a pre-filled GitHub issue in your browser: app version, Windows version "
+                         "and profile name only. You review it before sending."))
+        note.setWordWrap(True)
+        note.setObjectName("muted")
+        f.addRow(note)
 
         stream = QCheckBox()
         stream.setChecked(self.cfg["stream_safe"])

@@ -47,5 +47,18 @@ class ToolsTests(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(d, "out", name)), name)
 
 
+
+class OnboardingTests(unittest.TestCase):
+    def test_reports_hide_user_paths_and_changelog_has_this_version(self):
+        import getpass
+        import onboarding
+        from updates import VERSION
+        text = onboarding.scrub("File " + os.path.join(os.path.expanduser("~"), "x.py") + ", user " + getpass.getuser())
+        self.assertNotIn(os.path.expanduser("~"), text)
+        self.assertNotIn(getpass.getuser(), text)
+        self.assertIn(f"## v{VERSION}", onboarding.changelog_text())
+        self.assertLess(len(onboarding.issue_url("t", "x" * 10000)), 12000)
+
+
 if __name__ == "__main__":
     unittest.main()

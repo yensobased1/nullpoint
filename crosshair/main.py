@@ -4,7 +4,6 @@ import os
 import re
 import sys
 import time
-import traceback
 
 # Physical pixels everywhere: the overlay stays pixel-perfect and centered at 125%/150% scaling.
 # Qt still runs per-monitor DPI aware, so Win32 coordinates are physical too.
@@ -25,6 +24,7 @@ from alignment import AlignmentWindow
 from hotkeys import hold_vk, is_down, to_win_hotkey
 from popups import InfoCard, QuickSwitcher
 import library
+import onboarding
 import tools
 import sharing
 from presence import Presence
@@ -46,13 +46,6 @@ SHELL_EXES = {"explorer.exe", "searchhost.exe", "shellexperiencehost.exe", "star
               "textinputhost.exe", "lockapp.exe", ""}
 IPC_NAME = "Nullpoint.IPC"
 EXCLUSIVE_MSG = "Switch the game to Windowed Fullscreen / Borderless for the overlay to show."
-
-
-def log_errors(*exc):
-    os.makedirs(config.CONFIG_DIR, exist_ok=True)
-    with open(os.path.join(config.CONFIG_DIR, "error.log"), "a", encoding="utf-8") as f:
-        f.write("".join(traceback.format_exception(*exc)) + "\n")
-    sys.__excepthook__(*exc)
 
 
 def tray_icon():
@@ -77,6 +70,7 @@ class App:
         self.qt.setWindowIcon(app_icon())
         if config.migrate_old_folder():
             migrate_startup()
+        self.first_run = not os.path.exists(config.CONFIG_PATH)
         self.cfg = config.load()
         i18n.set_language(self.cfg["language"])
         self.qt.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
@@ -136,6 +130,36 @@ class App:
         self.timer.start()
         self.poll()
         self.hold_timer.start()
+        QTimer.singleShot(800, self.onboarding)
+
+    def qss(self):
+        return theme.use(self.cfg["theme"], self.cfg["ui_scale"], self.cfg["large_text"])
+
+    def onboarding(self):
+        """New install: wizard. Update: what's new, once."""
+        if self.first_run and not self.cfg["wizard_done"]:
+            self.run_wizard()
+        elif self.cfg["last_version"] != VERSION and not self.first_run:
+            onboarding.show_changelog(None, VERSION, self.qss())
+        self.cfg["last_version"] = VERSION
+        self.save_timer.start()
+
+    def run_wizard(self):
+        wiz = onboarding.Wizard(self.cfg, lambda c: SettingsWindow.thumbnail(c), self.wizard_done)
+        wiz.setStyleSheet(self.qss())
+        wiz.exec()
+
+    def wizard_done(self, kept_games, preset):
+        if kept_games is not None:
+            self.cfg["games"] = {exe: p for exe, p in self.cfg["games"].items() if exe in kept_games}
+        if preset:
+            for p in self.cfg["profiles"].values():
+                p["crosshair"] = copy.deepcopy(preset)
+        self.cfg["wizard_done"] = True
+        self.on_change("general")
+        self.apply()
+        if self.settings:
+            self.settings.refresh()
 
     def build_menu(self):
         menu = QMenu()
@@ -464,7 +488,7 @@ class App:
 
     def open_settings(self):
         if self.settings is None:
-            qss = theme.use(self.cfg["theme"])  # tokens first: feature icons are tinted while the window builds
+            qss = self.qss()  # tokens first: feature icons are tinted while the window builds
             self.settings = SettingsWindow(self)
             self.settings.setStyleSheet(qss)
         self.settings.refresh()
@@ -511,7 +535,7 @@ class App:
 
 
 def main():
-    sys.excepthook = log_errors
+    onboarding.install_crash_hook(VERSION)  # local crash reports, never uploaded
     # Own taskbar identity, so Windows shows the Nullpoint icon instead of python.exe's.
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nullpoint.Overlay")
     arg = sys.argv[1] if len(sys.argv) > 1 else ""

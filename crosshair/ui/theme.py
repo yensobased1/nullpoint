@@ -24,11 +24,12 @@ def system_is_light():
         return False
 
 
-def use(name):
-    """name: System / Dark / Light. Returns the stylesheet for QApplication.setStyleSheet."""
+def use(name, scale=100, large=False):
+    """name: System / Dark / Light; scale: text size %; large: +2 pt. Returns the settings stylesheet."""
     light = name == "Light" or (name == "System" and system_is_light())
     tokens.clear()
     tokens.update(LIGHT if light else DARK)
+    tokens["font"] = f"{round(10 * scale / 100 + (2 if large else 0))}pt"
     return QSS.format(**tokens)
 
 
@@ -63,6 +64,11 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 /* Slider number boxes: zero-width buttons (Qt squeezes the text to 1px if NoButtons is combined with QSS) */
 QAbstractSpinBox#num::up-button, QAbstractSpinBox#num::down-button {{ width: 0px; border: 0px; }}
+/* keyboard focus rings */
+QPushButton:focus, QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus, QKeySequenceEdit:focus,
+QListWidget:focus, QTableWidget:focus, QTabBar::tab:focus {{ border: 2px solid {accent}; }}
+QCheckBox:focus {{ text-decoration: underline; }}
+QSlider:focus QSlider::handle:horizontal, QSlider::handle:horizontal:focus {{ border: 2px solid {muted}; }}
 QScrollArea {{ border: 0; }}
 QLabel#muted {{ color: {muted}; }}
 """
