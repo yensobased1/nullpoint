@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 import config
 import library
 import overlay
+import sharing
 from editor import EditorTab
 from hotkeys import HOLD_CHOICES, hold_vk
 from preview import PixelView, PreviewPanel, render_image
@@ -168,11 +169,16 @@ class SettingsWindow(QWidget):
         self.tabs.addTab(self.library_page, tr("Library"))
         self.tabs.addTab(self.scroll(self._games_tab()), tr("Games & Display").replace("&", "&&"))
         self.tabs.addTab(self.scroll(self._share_tab()), tr("Share"))
+        self.gallery_page = self._gallery_tab()
+        self.tabs.addTab(self.gallery_page, icon("gallery"), tr("Gallery"))
         self.tabs.addTab(self.scroll(self._app_tab()), tr("App Settings"))
         # The editor has its own 1x/4x preview and needs the room.
         self.tabs.currentChanged.connect(lambda i: self.left.setVisible(self.tabs.widget(i) is not self.editor))
         self.tabs.currentChanged.connect(
             lambda i: self.load_library() if self.tabs.widget(i) is self.library_page else None)
+        self.tabs.currentChanged.connect(
+            lambda i: self.gallery.fetch() if self.tabs.widget(i) is self.gallery_page else None)
+        self.setAcceptDrops(True)  # drop a QR screenshot anywhere on the window
         root.addWidget(self.tabs, 1)
         self.finish_search_index()
         self.refresh()
@@ -621,6 +627,18 @@ class SettingsWindow(QWidget):
         b.clicked.connect(self._show_qr)
         self.share_row.addWidget(b)
         f.addRow(self.share_row)
+        row = QHBoxLayout()
+        for text, ic, fn in (("Save share card...", "share_card", self._save_card),
+                             ("Copy share card", "share_card", self._copy_card),
+                             ("Import from image...", "qr_import", self._import_image),
+                             ("Paste image", "qr_import", self._paste_image)):
+            b = QPushButton(icon(ic), tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        f.addRow(row)
+        hint = QLabel(tr("You can also drop a QR image onto this window."))
+        hint.setObjectName("muted")
+        f.addRow(hint)
 
         g, f, reset = self.group(lay, "Backup", [])
         reset.hide()
@@ -832,23 +850,152 @@ class SettingsWindow(QWidget):
             library.save(self.lib_entries)
             self.load_library()
 
+    # ---------- share card / QR import / confirm ----------
+    def _card(self):
+        cross = self.target("cross")
+        return sharing.share_card(cross, export_code(cross), self.ov.pixmap if cross["mode"] == "png" else None)
+
+    def _save_card(self):
+        path, _ = QFileDialog.getSaveFileName(self, tr("Save share card"), "nullpoint_crosshair.png", "PNG (*.png)")
+        if path:
+            ok = self._card().save(path, "PNG")
+            self.say(tr("Saved") + f": {os.path.basename(path)}" if ok else tr("Could not save the file."), not ok)
+
+    def _copy_card(self):
+        QGuiApplication.clipboard().setImage(self._card())
+        self.say(tr("Share card copied to clipboard."))
+
+    def import_qr_image(self, img):
+        try:
+            code = sharing.decode_qr(img)
+        except ShareCodeError as e:
+            self.say(f"{tr('Import failed')}: {e}", True)
+            return
+        self.confirm_import(code, tr("From a QR image"))
+
+    def _import_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, tr("Import from image"), "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
+        if path:
+            self.import_qr_image(QImage(path))
+
+    def _paste_image(self):
+        img = QGuiApplication.clipboard().image()
+        if img.isNull():
+            self.say(tr("The clipboard has no image."), True)
+        else:
+            self.import_qr_image(img)
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls() or e.mimeData().hasImage():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        md = e.mimeData()
+        if md.hasImage():
+            self.import_qr_image(QImage(md.imageData()))
+        elif md.hasUrls() and md.urls()[0].isLocalFile():
+            self.import_qr_image(QImage(md.urls()[0].toLocalFile()))
+
+    def confirm_import(self, code, source=""):
+        """Preview + 'Import this crosshair?'. Nothing changes unless the user picks an action."""
+        try:
+            cross = import_code(code)
+        except ShareCodeError as e:
+            self.say(f"{tr('Invalid code')}: {e}", True)
+            return
+        self.show()
+        self.raise_()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Import this crosshair?"))
+        dlg.setWindowIcon(icon("link"))
+        v = QVBoxLayout(dlg)
+        if source:
+            v.addWidget(QLabel(source))
+        c = overlay.extent(cross)
+        img = render_image(lambda p, cc: overlay.render(p, cross, cc), c)
+        view = PixelView(lambda: (img, c), zoom=4, bg="Dark", size=220)
+        v.addWidget(view, 0, Qt.AlignCenter)
+        text = QLabel(code)
+        text.setWordWrap(True)
+        text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        v.addWidget(text)
+        bb = QDialogButtonBox()
+        apply_btn = bb.addButton(tr("Apply to current profile"), QDialogButtonBox.AcceptRole)
+        lib_btn = bb.addButton(tr("Save to library"), QDialogButtonBox.ActionRole)
+        bb.addButton(QDialogButtonBox.Cancel)
+        choice = {}
+        bb.clicked.connect(lambda b: (choice.setdefault("b", b), dlg.accept()))
+        v.addWidget(bb)
+        dlg.exec()
+        b = choice.get("b")
+        if b is apply_btn:
+            self.record()
+            self.profile()["crosshair"] = cross
+            self.on_change("crosshair")
+            self.refresh()
+            self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}")
+        elif b is lib_btn:
+            library.add(tr("Imported"), cross)
+            self.say(tr("Added to library"))
+
+    # ---------- gallery ----------
+    def _gallery_tab(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel(tr("Community crosshairs from github.com/yensobased1/nullpoint (gallery folder). "
+                                "Loaded only when you open this tab.")))
+        self.gallery_list = QListWidget()
+        self.gallery_list.setViewMode(QListWidget.IconMode)
+        self.gallery_list.setIconSize(QSize(64, 64))
+        self.gallery_list.setGridSize(QSize(120, 110))
+        self.gallery_list.setResizeMode(QListWidget.Adjust)
+        self.gallery_list.setMovement(QListWidget.Static)
+        self.gallery_list.itemDoubleClicked.connect(lambda _: self._gallery_import())
+        lay.addWidget(self.gallery_list, 1)
+        self.gallery_status = QLabel()
+        self.gallery_status.setObjectName("muted")
+        lay.addWidget(self.gallery_status)
+        row = QHBoxLayout()
+        b = QPushButton(icon("gallery"), tr("Import"))
+        b.clicked.connect(self._gallery_import)
+        row.addWidget(b)
+        b = QPushButton(tr("Refresh"))
+        b.clicked.connect(self._gallery_refresh)
+        row.addWidget(b)
+        row.addStretch()
+        lay.addLayout(row)
+        self.gallery = sharing.Gallery(os.path.join(config.CONFIG_DIR, "gallery_cache.json"))
+        self.gallery.loaded.connect(self._gallery_loaded)
+        self.gallery_entries = []
+        return page
+
+    def _gallery_refresh(self):
+        try:
+            os.remove(self.gallery.cache_path)
+        except OSError:
+            pass
+        self.gallery_status.setText(tr("Loading..."))
+        self.gallery.fetch()
+
+    def _gallery_loaded(self, entries, error):
+        self.gallery_entries = entries
+        self.gallery_list.clear()
+        for e in entries:
+            it = QListWidgetItem(self.thumbnail(import_code(e["code"])), e["name"])
+            it.setToolTip(f"{e['name']}  -  {e['author']}\n{', '.join(e['tags'])}")
+            self.gallery_list.addItem(it)
+        self.gallery_status.setText(error or f"{len(entries)} {tr('crosshairs')}")
+
+    def _gallery_import(self):
+        row = self.gallery_list.currentRow()
+        if 0 <= row < len(self.gallery_entries):
+            e = self.gallery_entries[row]
+            self.confirm_import(e["code"], f"{e['name']}  -  {e['author']}")
+
     # ---------- QR ----------
     def _show_qr(self):
-        import qrcode
         code = export_code(self.target("cross"))
-        qr = qrcode.QRCode(border=2)
-        qr.add_data(code)
-        qr.make(fit=True)
-        m = qr.get_matrix()
-        cell = 6
-        img = QImage(len(m) * cell, len(m) * cell, QImage.Format_RGB32)
-        img.fill(QColor("white"))
-        p = QPainter(img)
-        for y, row in enumerate(m):
-            for x, on in enumerate(row):
-                if on:
-                    p.fillRect(x * cell, y * cell, cell, cell, QColor("black"))
-        p.end()
+        img = sharing.qr_image(code)
         dlg = QDialog(self)
         dlg.setWindowTitle(tr("Share code QR"))
         v = QVBoxLayout(dlg)
@@ -995,6 +1142,47 @@ class SettingsWindow(QWidget):
         start.setChecked(startup_enabled())
         start.toggled.connect(self._set_startup)
         f.addRow(tr("Start with Windows"), start)
+        for key, label, ic, kind in (("register_links", "Handle nullpoint:// links", "link", "links"),
+                                     ("discord_rpc", "Discord Rich Presence", "presence", "sharing")):
+            cb = QCheckBox()
+            cb.setChecked(self.cfg[key])
+            cb.setAccessibleName(tr(label))
+            cb.toggled.connect(lambda v, k=key, kd=kind: self._set_cfg(k, v, kd))
+            pic = QLabel()
+            pic.setPixmap(icon(ic).pixmap(16, 16))
+            row = QHBoxLayout()
+            row.addWidget(pic)
+            row.addWidget(cb, 1)
+            f.addRow(tr(label), row)
+        did = QLineEdit(self.cfg["discord_client_id"])
+        did.setPlaceholderText(tr("Discord application ID (numbers)"))
+        did.editingFinished.connect(lambda: self._set_cfg("discord_client_id", did.text().strip(), "sharing"))
+        f.addRow(tr("Discord client ID"), did)
+        sp = self.cfg["stream_page"]
+        on = QCheckBox()
+        on.setChecked(sp["on"])
+        port = QSpinBox()
+        port.setRange(1024, 65535)
+        port.setValue(int(sp["port"]))
+        url = QLabel()
+        url.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        url.setText(f"http://127.0.0.1:{sp['port']}/")
+
+        def stream_changed():
+            self.cfg["stream_page"] = {"on": on.isChecked(), "port": port.value()}
+            url.setText(f"http://127.0.0.1:{port.value()}/")
+            self.on_change("sharing")
+
+        on.toggled.connect(lambda _: stream_changed())
+        port.editingFinished.connect(stream_changed)
+        row = QHBoxLayout()
+        pic = QLabel()
+        pic.setPixmap(icon("stream").pixmap(16, 16))
+        for w in (pic, on, QLabel(tr("Port")), port, url):
+            row.addWidget(w)
+        row.addStretch()
+        f.addRow(tr("Stream page (OBS browser source)"), row)
+        f.addRow(QLabel(tr("Local only (127.0.0.1). Add the URL as a Browser Source in OBS / Streamlabs.")))
 
         stream = QCheckBox()
         stream.setChecked(self.cfg["stream_safe"])

@@ -1,2 +1,4 @@
 PySide6-Essentials>=6.6,<7
 qrcode>=7.4
+zxing-cpp>=2.2
+pypresence>=4.3

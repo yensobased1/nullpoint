@@ -68,6 +68,10 @@ DEFAULT_CONFIG = {
     "language": "en",  # en / ar
     "update_repo": DEFAULT_UPDATE_REPO,  # "owner/repo" on GitHub, empty = no update check
     "last_update_check": 0,
+    "register_links": True,  # handle nullpoint://import/<code> links (per-user registry, no admin)
+    "stream_page": {"on": False, "port": 7373},  # local page for OBS browser sources, 127.0.0.1 only
+    "discord_rpc": False,
+    "discord_client_id": "",
 }
 
 

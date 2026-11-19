@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "name": "Classic Cyan",
+      "author": "nullpoint",
+      "tags": [
+        "classic",
+        "tac-fps"
+      ],
+      "code": "XH3;m:l;c:00FFFF;o:1,1,0.5;d:1,2,1;i:1,6,2,3,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;g:0,10,1,1,0,20,0;w:0,5,1;h:0,2,0.5;s:c;r:0;k:1,00FFFF,00FFFF,00FFFF,000000;y:0,FFFFFF;l:s,2,1;x:%2B,24,1,1,"
+    },
+    {
+      "name": "Tiny Dot",
+      "author": "nullpoint",
+      "tags": [
+        "minimal",
+        "dot"
+      ],
+      "code": "XH3;m:l;c:FFFFFF;o:1,1,0.5;d:1,2,1;i:1,6,2,3,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;g:0,10,1,1,0,20,0;w:0,5,1;h:0,2,0.5;s:d;r:0;k:1,00FFFF,00FFFF,00FFFF,000000;y:0,FFFFFF;l:s,2,1;x:%2B,24,1,1,"
+    },
+    {
+      "name": "Green Plus",
+      "author": "nullpoint",
+      "tags": [
+        "bold",
+        "br"
+      ],
+      "code": "XH3;m:l;c:00FF00;o:1,1,0.5;d:1,2,1;i:1,4,2,0,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;g:0,10,1,1,0,20,0;w:0,5,1;h:0,2,0.5;s:p;r:0;k:1,00FFFF,00FFFF,00FFFF,000000;y:0,FFFFFF;l:s,2,1;x:%2B,24,1,1,"
+    },
+    {
+      "name": "Ring Scope",
+      "author": "nullpoint",
+      "tags": [
+        "ring",
+        "sniper"
+      ],
+      "code": "XH3;m:l;c:FFFF00;o:1,1,0.5;d:1,2,1;i:1,4,2,4,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;g:1,12,1,1,4,30,45;w:0,5,1;h:0,2,0.5;s:c;r:0;k:1,00FFFF,00FFFF,00FFFF,000000;y:0,FFFFFF;l:s,2,1;x:%2B,24,1,1,"
+    },
+    {
+      "name": "Shadow T",
+      "author": "nullpoint",
+      "tags": [
+        "t-shape",
+        "bright-maps"
+      ],
+      "code": "XH3;m:l;c:FF4D8D;o:1,1,0.5;d:1,2,1;i:1,6,2,3,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;g:0,10,1,1,0,20,0;w:0,5,1;h:1,2,0.6;s:t;r:0;k:1,00FFFF,00FFFF,00FFFF,000000;y:0,FFFFFF;l:s,2,1;x:%2B,24,1,1,"
+    }
+  ]
+}

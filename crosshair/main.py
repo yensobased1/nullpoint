@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import copy
 
-from PySide6.QtCore import QPoint, QTimer, Qt, QUrl
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QTimer, Qt, QUrl
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -24,7 +25,11 @@ from alignment import AlignmentWindow
 from hotkeys import hold_vk, is_down, to_win_hotkey
 from popups import InfoCard, QuickSwitcher
 import library
-from settings_ui import SettingsWindow, app_icon, asset, migrate_startup, screens
+import sharing
+from presence import Presence
+from stream_server import StreamServer
+from share_code import export_code
+from settings_ui import SettingsWindow, app_icon, asset, migrate_startup, screens, startup_command
 from ui import i18n, theme
 from ui.i18n import tr
 from updates import VERSION, UpdateChecker
@@ -38,6 +43,7 @@ HOTKEY_LABELS = {"toggle": "Toggle overlay", "settings": "Open settings", "switc
 # Shell windows that grab focus when you click the tray: never "the current game".
 SHELL_EXES = {"explorer.exe", "searchhost.exe", "shellexperiencehost.exe", "startmenuexperiencehost.exe",
               "textinputhost.exe", "lockapp.exe", ""}
+IPC_NAME = "Nullpoint.IPC"
 EXCLUSIVE_MSG = "Switch the game to Windowed Fullscreen / Borderless for the overlay to show."
 
 
@@ -103,6 +109,16 @@ class App:
             lambda: QDesktopServices.openUrl(QUrl(self.update_url)) if self.update_url else None)
         self.tray.show()
 
+        self.stream = StreamServer()
+        self.presence = Presence()
+        self.ipc = QLocalServer()
+        QLocalServer.removeServer(IPC_NAME)  # stale socket from a crash
+        self.ipc.listen(IPC_NAME)
+        self.ipc.newConnection.connect(self.on_ipc)
+        if self.cfg["register_links"]:
+            self.set_links(True, quiet=True)
+        self.apply_sharing()
+
         self.apply()
         self.apply_stream_safe(quiet=True)
         self.updates = UpdateChecker()
@@ -146,6 +162,68 @@ class App:
         p = self.profile()
         self.ov.set_crosshair(p["crosshair"], p["png_path"], self.stretch_factor(), p["anim_paused"])
         self.place()
+        if self.cfg["stream_page"]["on"]:
+            self.publish_stream()
+
+    # ---------- sharing: links, stream page, Discord ----------
+    def on_ipc(self):
+        sock = self.ipc.nextPendingConnection()
+        buf = bytearray()
+
+        def read():
+            buf.extend(bytes(sock.readAll()))
+            del buf[2000:]
+
+        def done():
+            read()
+            self.handle_message(buf.decode("utf-8", "replace"))
+            sock.deleteLater()
+
+        sock.readyRead.connect(read)
+        sock.disconnected.connect(done)  # the sender closes after writing: then we have the whole message
+
+    def handle_message(self, text):
+        """From a second launch: 'show' or a nullpoint:// link. Links never apply without the user's OK."""
+        if text.lower().startswith("nullpoint:"):
+            code = sharing.code_from_link(text)
+            self.open_settings()
+            if code:
+                self.settings.confirm_import(code, tr("From a nullpoint:// link"))
+            else:
+                self.settings.say(tr("That link doesn't contain a valid Nullpoint share code."), True)
+        else:
+            self.open_settings()
+
+    def set_links(self, on, quiet=False):
+        try:
+            sharing.register_protocol(startup_command()) if on else sharing.unregister_protocol()
+        except OSError as e:
+            if not quiet:
+                self.notify(f"{tr('Could not change link handling')}: {e}")
+
+    def apply_sharing(self):
+        sp = self.cfg["stream_page"]
+        if sp["on"]:
+            try:
+                self.stream.start(int(sp["port"]))
+                self.publish_stream()
+            except OSError as e:
+                self.notify(f"{tr('Stream page could not start')}: {e}")
+        else:
+            self.stream.stop()
+        if self.cfg["discord_rpc"] and self.cfg["discord_client_id"]:
+            self.presence.set(self.cfg["discord_client_id"], f"Profile: {self.cfg['active_profile']}")
+        else:
+            self.presence.stop()
+
+    def publish_stream(self):
+        from preview import render_image
+        img = render_image(self.ov.draw, self.ov.c)
+        data = QByteArray()
+        buf = QBuffer(data)
+        buf.open(QIODevice.WriteOnly)
+        img.save(buf, "PNG")
+        self.stream.publish(export_code(self.profile()["crosshair"]), bytes(data))
 
     def stretch_factor(self):
         """Stretched res: in-game pixels are native_w / w wide, so the crosshair is too."""
@@ -190,6 +268,8 @@ class App:
             self.cfg["active_profile"] = name
             self.apply()
             self.save_timer.start()
+            if self.cfg["discord_rpc"]:
+                self.presence.set(self.cfg["discord_client_id"], f"Profile: {name}")
             if self.settings:
                 self.settings.refresh()
 
@@ -206,6 +286,10 @@ class App:
             self.register_hotkeys()
         elif kind == "stream":
             self.apply_stream_safe()
+        elif kind == "sharing":
+            self.apply_sharing()
+        elif kind == "links":
+            self.set_links(self.cfg["register_links"])
         elif kind == "theme":
             self.set_language()  # rebuilds the settings window so icons re-tint for dark / light
         elif kind == "language":
@@ -395,6 +479,8 @@ class App:
             a.setChecked(name == self.cfg["active_profile"])
 
     def exit(self):
+        self.stream.stop()
+        self.presence.stop()
         self.save_timer.stop()
         self.save()
         for hid in HOTKEY_IDS.values():
@@ -407,13 +493,22 @@ def main():
     sys.excepthook = log_errors
     # Own taskbar identity, so Windows shows the Nullpoint icon instead of python.exe's.
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nullpoint.Overlay")
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
     # One instance only: a second copy would double-draw and fail to get the hotkeys.
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = ctypes.c_void_p
     _mutex = k32.CreateMutexW(None, False, "Nullpoint.SingleInstance")  # held until exit
-    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS: hand the link / "show" to the running copy
+        sock = QLocalSocket()
+        sock.connectToServer(IPC_NAME)
+        if sock.waitForConnected(1500):
+            sock.write((arg or "show").encode("utf-8")[:2000])
+            sock.waitForBytesWritten(1500)
+            sock.disconnectFromServer()
         return
     app = App()
+    if arg:
+        QTimer.singleShot(500, lambda: app.handle_message(arg))
     sys.exit(app.qt.exec())
 
 
