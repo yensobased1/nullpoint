@@ -1,5 +1,33 @@
 # Next steps
 
+## v2.2 progress (stopped at the usage budget, 2026-11-19)
+Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools). 84 tests pass.
+Nothing is pushed or released yet: v2.2 work lives in local commits on `main`.
+
+Left to do, in order (spec: "Feature Pack v2.2"):
+- Phase 4: duplicate detection (#58), PNG folder import (#59), recent crosshairs in tray (#64), drag and drop of
+  .nullpoint / images / text (#78), VALORANT code export + round-trip test (#65), CS2 console commands + share
+  code only if verified against 3 real codes (#66), GIF share / animated share card (#71), Discord snippet (#72),
+  clipboard watch opt-in (#73), starter preset packs (#76).
+- Phase 5: gallery grid / search / tags (#68, #69), gallery submit issue template (#70), OBS page themes (#74),
+  Twitch !crosshair with keyring token (#75), web builder in docs/builder with shared test vectors (#77).
+- Phase 6: tooltip previews (#81), safe mode (#90), config/library auto-repair + rotating backups (#91).
+- Phase 7: de / ru / pl / it / ja / ko / zh_CN + CJK fonts (#93, #94), missing-key report + docs/TRANSLATING.md (#95).
+- Phase 8: security audit (pip-audit, bandit, secret scan, hashes, fuzz tests, SECURITY.md, dependabot, CodeQL,
+  docs/SECURITY_AUDIT.md).
+- Phase 9: in-app updater with SHA-256 check (#96), beta channel (#97), signing step + docs/SIGNING.md (#98),
+  Scoop + Chocolatey (#99), MSIX + docs/STORE.md (#100), release v2.2.0.
+
+Notes from phases 1-3:
+- Share codes are now XH4 (adds per-arm, dot shape, glow, fire expand). XH1-XH3 still load.
+- Pillow was added to requirements.txt (animated GIF export from the editor).
+- Sensitivity converter covers CS2, Apex, VALORANT and Overwatch 2. Fortnite and Roblox are left out: no reliable
+  published yaw value was found to check against.
+- HDR "Auto" reads Windows' advanced-color flag per monitor (DisplayConfig API); not tested on a real HDR screen.
+- Fire expand, nudge mode and resolution variants were tested with unit tests and an offscreen settings window,
+  not inside a real game.
+- "Start with Windows" entries are rewritten on launch to add `--autostart` (needed for the startup delay).
+
 ## Manual steps for you
 
 ### Discord Rich Presence (client ID)
