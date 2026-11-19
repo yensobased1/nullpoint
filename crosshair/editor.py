@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QButtonGroup, QColorDialog, QComboBox, QFileDialo
 import library
 from config import DEFAULT_CROSSHAIR
 from preview import PixelView, paint_background
+from ui import theme
 
 SIZES = [16, 32, 64]
 TOOLS = ["Pencil", "Eraser", "Line", "Rectangle", "Fill", "Eyedropper"]
@@ -390,7 +391,7 @@ class EditorTab(QWidget):
 
     # ---------- save ----------
     def say(self, text, error=False):
-        self.status.setStyleSheet("color: #ef6b6b;" if error else "color: #52c98e;")
+        self.status.setStyleSheet(f"color: {theme.tokens['danger' if error else 'ok']};")
         self.status.setText(text)
 
     def write(self, path):

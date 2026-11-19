@@ -1,17 +1,16 @@
 """Color/spacing tokens + one QSS stylesheet built from them. Theme switch = swap tokens."""
 import winreg
 
+# Monochrome (black & white) to match the Nullpoint brand. Only error text keeps a color.
 DARK = {
-    "bg": "#1d2025", "panel": "#252930", "input": "#16181c", "border": "#3a3f48", "text": "#e6e8eb",
-    "muted": "#9aa1ab", "accent": "#36b3c4", "accent_text": "#0b1a1d", "danger": "#ef6b6b",
-    "ok": "#52c98e", "preview_top": "#3a4048", "preview_bottom": "#8a9099",
-    "pad": "6px", "radius": "4px", "font": "10pt",
+    "bg": "#000000", "panel": "#0f0f0f", "input": "#000000", "border": "#2e2e2e", "text": "#f2f2f2",
+    "muted": "#8c8c8c", "accent": "#ffffff", "accent_text": "#000000", "danger": "#ef6b6b",
+    "ok": "#f2f2f2", "pad": "6px", "radius": "4px", "font": "10pt",
 }
 LIGHT = {
-    "bg": "#f3f4f6", "panel": "#ffffff", "input": "#ffffff", "border": "#c9ced6", "text": "#1d2025",
-    "muted": "#5d6470", "accent": "#0f8a9c", "accent_text": "#ffffff", "danger": "#c62828",
-    "ok": "#1b8a4c", "preview_top": "#5a6370", "preview_bottom": "#c3c8cf",
-    "pad": "6px", "radius": "4px", "font": "10pt",
+    "bg": "#ffffff", "panel": "#f4f4f4", "input": "#ffffff", "border": "#cccccc", "text": "#0a0a0a",
+    "muted": "#5c5c5c", "accent": "#000000", "accent_text": "#ffffff", "danger": "#c62828",
+    "ok": "#0a0a0a", "pad": "6px", "radius": "4px", "font": "10pt",
 }
 tokens = dict(DARK)
 
@@ -62,6 +61,8 @@ QScrollBar:vertical {{ background: {bg}; width: 10px; margin: 0; }}
 QScrollBar::handle:vertical {{ background: {border}; border-radius: 4px; min-height: 24px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+/* Slider number boxes: zero-width buttons (Qt squeezes the text to 1px if NoButtons is combined with QSS) */
+QAbstractSpinBox#num::up-button, QAbstractSpinBox#num::down-button {{ width: 0px; border: 0px; }}
 QScrollArea {{ border: 0; }}
 QLabel#muted {{ color: {muted}; }}
 """

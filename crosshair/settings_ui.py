@@ -22,6 +22,7 @@ import overlay
 from editor import EditorTab
 from preview import PreviewPanel, render_image
 from share_code import FIELDS, ShareCodeError, export_code, import_code
+from ui import theme
 from ui.i18n import LANGUAGES, tr
 
 SHAPES = [("cross", "Cross"), ("t", "T-Shape"), ("dot", "Dot only"), ("circle", "Circle"),
@@ -221,7 +222,7 @@ class SettingsWindow(QWidget):
             self.update_display_info()
 
     def say(self, text, error=False):
-        self.status.setStyleSheet("color: #d33;" if error else "color: #2a2;")
+        self.status.setStyleSheet(f"color: {theme.tokens['danger' if error else 'ok']};")
         self.status.setText(text)
 
     # ---------- widgets bound to settings ----------
@@ -236,9 +237,9 @@ class SettingsWindow(QWidget):
         if dec:
             n.setDecimals(dec)
             n.setSingleStep(1 / scale)
-        n.setButtonSymbols(QSpinBox.NoButtons)
+        n.setObjectName("num")  # QSS hides its arrows (see ui/theme.py)
         n.setAlignment(Qt.AlignRight)
-        n.setFixedWidth(52)
+        n.setFixedWidth(60)
 
         def from_spin(v):
             s.blockSignals(True)
@@ -539,7 +540,7 @@ class SettingsWindow(QWidget):
         c = overlay.extent(cross, pm)
         img = render_image(lambda p, cc: overlay.render(p, cross, cc, pm), c)
         icon = QImage(64, 64, QImage.Format_ARGB32_Premultiplied)
-        icon.fill(QColor("#2a2e35"))
+        icon.fill(QColor("#111111"))
         z = max(1, 64 // img.width()) if img.width() <= 64 else 0
         p = QPainter(icon)
         if z:
