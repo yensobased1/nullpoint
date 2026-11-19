@@ -10,7 +10,7 @@
    Discord desktop must be running. Nothing is sent when the box is off or the ID is empty.
 
 ### winget (submit it yourself)
-The manifests are in `packaging/winget/manifests/y/yensobased1/Nullpoint/<version>/` (2.1.0 and 2.1.1) and pass `winget validate`.
+The manifests are in `packaging/winget/manifests/y/yensobased1/Nullpoint/<version>/` (2.1.0, 2.1.1, 2.1.2) and pass `winget validate`.
 1. Make sure release v2.1.0 is live and the installer URL in `yensobased1.Nullpoint.installer.yaml` downloads.
 2. Optional local test (admin PowerShell): `winget settings --enable LocalManifestFiles`, then
    `winget install --manifest packaging\winget\manifests\y\yensobased1\Nullpoint\2.1.0`.
