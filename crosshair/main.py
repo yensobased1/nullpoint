@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 import config
 import game_detect
+import hdr
 from overlay import Overlay
 from alignment import AlignmentWindow
 from hotkeys import hold_vk, is_down, to_win_hotkey
@@ -38,9 +39,13 @@ from updates import VERSION, UpdateChecker
 user32 = ctypes.windll.user32
 user32.RegisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_uint, ctypes.c_uint]
 user32.UnregisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int]
-HOTKEY_IDS = {"toggle": 1, "settings": 2, "switcher": 3}
+HOTKEY_IDS = {"toggle": 1, "settings": 2, "switcher": 3, "nudge": 4}
 VK_LBUTTON = 0x01
+NUDGE_KEYS = {0x25: (-1, 0), 0x27: (1, 0), 0x26: (0, -1), 0x28: (0, 1)}  # arrows
+VK_SHIFT, VK_ESCAPE = 0x10, 0x1B
+AUTOSTART = "--autostart"  # added by the "Start with Windows" entry
 HOTKEY_LABELS = {"toggle": "Toggle overlay", "settings": "Open settings", "switcher": "Quick switcher",
+                 "nudge": "Nudge mode",
                  "hold_hide": "Hide while held", "cheat": "Show this cheat sheet (hold)"}
 # Shell windows that grab focus when you click the tray: never "the current game".
 SHELL_EXES = {"explorer.exe", "searchhost.exe", "shellexperiencehost.exe", "startmenuexperiencehost.exe",
@@ -89,6 +94,14 @@ class App:
         self.native = (0, 0)
         self.align = None  # alignment test window while open
         self.held_hidden = False  # hide-while-held key is down
+        self.game_res = None  # "2560x1440" of the focused game window, picks a resolution variant
+        self.hdr_mult = 1.0
+        self.nudging = False
+        self.nudge_prev = set()
+        # Started with Windows: wait startup_delay seconds before showing anything.
+        self.startup_hold = AUTOSTART in sys.argv and self.cfg["startup_delay"] > 0
+        if self.startup_hold:
+            QTimer.singleShot(self.cfg["startup_delay"] * 1000, self.end_startup_hold)
         self.card = InfoCard()
         self.switcher = None
         self.hold_timer = QTimer(interval=40)  # polls only the hold keys' up/down state
@@ -194,9 +207,26 @@ class App:
     def profile(self):
         return self.cfg["profiles"][self.cfg["active_profile"]]
 
+    def cross(self):
+        """Crosshair in use: the profile's variant for the current game resolution, else its default one."""
+        return config.active_cross(self.profile(), self.game_res)
+
+    def shown_cross(self):
+        return hdr.boost(self.cross(), self.hdr_mult)
+
+    def end_startup_hold(self):
+        self.startup_hold = False
+        self.place()
+
+    def update_hdr(self):
+        m = hdr.multiplier(self.cfg["hdr"], *self.center()) if self.cfg["hdr"]["mode"] != "Off" else 1.0
+        if m != self.hdr_mult:
+            self.hdr_mult = m
+            self.apply()
+
     def apply(self):
         p = self.profile()
-        self.ov.set_crosshair(p["crosshair"], p["png_path"], self.stretch_factor(), p["anim_paused"])
+        self.ov.set_crosshair(self.shown_cross(), p["png_path"], self.stretch_factor(), p["anim_paused"])
         self.place()
         if self.cfg["stream_page"]["on"]:
             self.publish_stream()
@@ -259,7 +289,7 @@ class App:
         buf = QBuffer(data)
         buf.open(QIODevice.WriteOnly)
         img.save(buf, "PNG")
-        self.stream.publish(export_code(self.profile()["crosshair"]), bytes(data))
+        self.stream.publish(export_code(self.cross()), bytes(data))
 
     def stretch_factor(self):
         """Stretched res: in-game pixels are native_w / w wide, so the crosshair is too."""
@@ -289,9 +319,9 @@ class App:
             if self.settings:
                 self.settings.update_display_info()
         if abs(self.stretch_factor() - self.ov.sx) > 1e-9:
-            self.ov.set_crosshair(p["crosshair"], p["png_path"], self.stretch_factor(), p["anim_paused"])
+            self.ov.set_crosshair(self.shown_cross(), p["png_path"], self.stretch_factor(), p["anim_paused"])
         self.ov.set_center(cx + p["offset_x"], cy + p["offset_y"])
-        want = bool(self.align) or (self.cfg["visible"] and not self.held_hidden
+        want = bool(self.align) or (self.cfg["visible"] and not self.held_hidden and not self.startup_hold
                                     and (self.game_active or not self.cfg["show_only_in_games"]))
         if want != self.ov.isVisible():
             self.ov.setVisible(want)
@@ -326,6 +356,8 @@ class App:
             self.ov.reduce_motion = self.cfg["reduce_motion"]
             self.ov._update_timer()
             self.apply()
+        elif kind == "hdr":
+            self.update_hdr()
         elif kind == "power":
             self.power_check = 0
             self.update_power()
@@ -404,12 +436,13 @@ class App:
         if self.power_check <= 0:  # battery state: every ~30 s is plenty
             self.power_check = 20 if self.low_power else 60
             self.update_power()
+            self.update_hdr()
         hwnd, pid, exe = game_detect.foreground()
         if not hwnd or pid == os.getpid():
             return  # our own settings window / tray menu: keep the current profile
         if exe not in SHELL_EXES:
             self.last_external = (exe, game_detect.window_title(hwnd))
-        game_profile = game_detect.match_game(self.cfg["games"], exe, hwnd)
+        game_profile = game_detect.match_game(self.cfg["games"], exe, hwnd, self.cfg["rules"])
         if hwnd != self.last_hwnd:
             self.last_hwnd = hwnd
             self.game_active = game_profile is not None
@@ -418,6 +451,12 @@ class App:
                 self.last_target = target
                 self.set_profile(target)
             self.ov.raise_top()  # re-assert topmost on every focus change (fixes Alt+Tab)
+        size = game_detect.client_size(hwnd) if self.game_active else None
+        res = f"{size[0]}x{size[1]}" if size else None
+        if res != self.game_res:
+            self.game_res = res
+            if self.profile()["variants"]:
+                self.apply()
         if self.game_active:
             center = game_detect.client_center(hwnd)
             self.check_fullscreen(hwnd)
@@ -441,6 +480,8 @@ class App:
         for name, hid in HOTKEY_IDS.items():
             user32.UnregisterHotKey(self.ov.hwnd, hid)
             text = self.cfg["hotkeys"].get(name, "")
+            if not text:
+                continue  # turned off
             hk = to_win_hotkey(text)
             if hk is None or not user32.RegisterHotKey(self.ov.hwnd, hid, *hk):
                 bad.append(text or "(empty)")
@@ -455,7 +496,9 @@ class App:
             self.held_hidden = down
             self.place()
         # Fire expand: our own left-mouse state only, and only while a game window is focused.
-        ex = self.profile()["crosshair"]["expand"]["on"]
+        if self.nudging:
+            self.poll_nudge()
+        ex = self.cross()["expand"]["on"]
         self.ov.set_firing(ex and self.game_active and self.ov.isVisible() and is_down(VK_LBUTTON))
         cheat = hold_vk(self.cfg["hotkeys"].get("cheat"))
         show = bool(cheat) and is_down(cheat)
@@ -464,6 +507,33 @@ class App:
             self.card.show_lines(tr("Nullpoint hotkeys"), lines, self.center())
         elif not show and self.card.isVisible():
             self.card.hide()
+
+    def poll_nudge(self):
+        """Nudge mode: each arrow press moves the crosshair 1 px (Shift: 5 px). Esc ends it. Keys still reach the game."""
+        down = {vk for vk in (*NUDGE_KEYS, VK_ESCAPE) if is_down(vk)}
+        pressed, self.nudge_prev = down - self.nudge_prev, down
+        if VK_ESCAPE in pressed:
+            self.set_nudge(False)
+            return
+        step = 5 if is_down(VK_SHIFT) else 1
+        p = self.profile()
+        for vk in pressed:
+            dx, dy = NUDGE_KEYS[vk]
+            p["offset_x"] = min(max(p["offset_x"] + dx * step, -200), 200)
+            p["offset_y"] = min(max(p["offset_y"] + dy * step, -200), 200)
+        if pressed:
+            self.place()
+            self.save_timer.start()
+            if self.settings:
+                self.settings.refresh()
+
+    def set_nudge(self, on):
+        self.nudging, self.nudge_prev = on, set()
+        if on:
+            self.notify(tr("Nudge mode: arrow keys move the crosshair 1 px (Shift: 5 px). Esc to finish."), ms=4000)
+        else:
+            p = self.profile()
+            self.notify(f"{tr('Nudge mode off')}. {tr('Offset')}: {p['offset_x']}, {p['offset_y']}", ms=2500)
 
     def open_switcher(self):
         if self.switcher and self.switcher.isVisible():
@@ -496,6 +566,8 @@ class App:
             self.toggle()
         elif hid == HOTKEY_IDS["settings"]:
             self.open_settings()
+        elif hid == HOTKEY_IDS["nudge"]:
+            self.set_nudge(not self.nudging)
 
     def toggle(self):
         self.cfg["visible"] = not self.cfg["visible"]
@@ -554,12 +626,16 @@ def main():
     onboarding.install_crash_hook(VERSION)  # local crash reports, never uploaded
     # Own taskbar identity, so Windows shows the Nullpoint icon instead of python.exe's.
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nullpoint.Overlay")
-    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    args = [a for a in sys.argv[1:] if a != AUTOSTART]
+    arg = args[0] if args else ""
+    autostart = AUTOSTART in sys.argv
     # One instance only: a second copy would double-draw and fail to get the hotkeys.
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = ctypes.c_void_p
     _mutex = k32.CreateMutexW(None, False, "Nullpoint.SingleInstance")  # held until exit
     if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS: hand the link / "show" to the running copy
+        if autostart and not arg:
+            return  # already running: a login start shouldn't pop the settings window open
         sock = QLocalSocket()
         sock.connectToServer(IPC_NAME)
         if sock.waitForConnected(1500):

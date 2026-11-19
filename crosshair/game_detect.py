@@ -1,6 +1,7 @@
 """Foreground window detection via plain Win32 queries (no hooks, no process memory reads)."""
 import ctypes
 import os
+import re
 from ctypes import wintypes
 
 user32 = ctypes.windll.user32
@@ -94,8 +95,53 @@ def window_title(hwnd):
     return buf.value
 
 
-def match_game(games, exe, hwnd):
-    """Profile name for this foreground window, or None if it isn't a known game."""
+def client_size(hwnd):
+    """(width, height) of the window's client area, or None."""
+    r = wintypes.RECT()
+    if user32.IsIconic(hwnd) or not user32.GetClientRect(hwnd, ctypes.byref(r)) or r.right <= 0 or r.bottom <= 0:
+        return None
+    return r.right, r.bottom
+
+
+MAX_PATTERN = 100
+MAX_TITLE = 256
+# Patterns that can backtrack for a very long time (nested quantifiers, backreferences, lookarounds) are refused.
+RISKY = re.compile(r"\\[1-9]|\(\?(<?[=!]|P=)|\([^()]*[*+}][^()]*\)\s*[*+{?]|[*+]\s*[*+{]")
+
+
+def safe_regex(pattern):
+    """Compiled case-insensitive regex for a window-title rule, or None if it's too long, risky or invalid."""
+    if not isinstance(pattern, str) or len(pattern) > MAX_PATTERN or RISKY.search(pattern):
+        return None
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return None
+
+
+def rule_matches(rule, exe, title):
+    if rule["exe"] and rule["exe"] != exe:
+        return False
+    t = rule["title"]
+    if not t:
+        return True
+    title = title[:MAX_TITLE]
+    if rule["match"] == "exact":
+        return title.lower() == t.lower()
+    if rule["match"] == "regex":
+        rx = safe_regex(t)
+        return bool(rx and rx.search(title))
+    return t.lower() in title.lower()
+
+
+def match_game(games, exe, hwnd, rules=(), title=None):
+    """Profile name for this foreground window, or None if it isn't a known game.
+    Rules (exe and/or title) are tested first, in order; then the plain process list."""
+    if rules:
+        title = window_title(hwnd) if title is None else title
+        for rule in rules:
+            if rule_matches(rule, exe, title):
+                return rule["profile"]
     prof = games.get(exe)
     need = TITLE_REQUIRED.get(exe)
     if prof and need and need not in window_title(hwnd).lower():

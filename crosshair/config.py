@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import re
 import shutil
 import time
 
@@ -46,7 +47,13 @@ DEFAULT_PROFILE = {
     "monitor": 0,  # 0 = follow game window, N = monitor N
     "stretch": {"on": False, "w": 1440, "h": 1080, "native_w": 0},  # in-game res; native_w 0 = auto
     "anim_paused": False,
+    # Per game-window-resolution crosshairs: {"2560x1440": crosshair, ...}. No match = "crosshair" above.
+    "variants": {},
 }
+RES_KEY = re.compile(r"[1-9][0-9]{2,4}x[1-9][0-9]{2,4}")
+MAX_VARIANTS = 8
+MAX_RULES = 50
+RULE_MATCH = ("contains", "exact", "regex")
 
 # Built-in games: process name (lowercase) -> profile. javaw.exe also needs "minecraft" in the title.
 BUILTIN_GAMES = {
@@ -72,7 +79,12 @@ DEFAULT_CONFIG = {
     "show_only_in_games": True,  # UI: "Hide when game isn't focused"
     "fullscreen_mode": "Auto",  # Auto / Borderless / Exclusive
     # toggle/settings/switcher = global hotkeys; hold_hide/cheat = held keys (keyboard or Mouse2-5)
-    "hotkeys": {"toggle": "F8", "settings": "F9", "switcher": "Alt+X", "hold_hide": "", "cheat": "F1"},
+    "hotkeys": {"toggle": "F8", "settings": "F9", "switcher": "Alt+X", "hold_hide": "", "cheat": "F1",
+                "nudge": ""},  # nudge: off by default; arrow keys move the crosshair until Esc
+    # Profile rules, tested in order before the process list: exe and/or window title (contains / exact / regex).
+    "rules": [],
+    "hdr": {"mode": "Off", "mult": 1.5},  # Off / Manual / Auto (when Windows HDR is on for that monitor)
+    "startup_delay": 0,  # seconds to wait before showing the overlay when started with Windows
     "stream_safe": False,
     "theme": "System",  # System / Dark / Light
     "language": "en",  # en / ar
@@ -139,11 +151,42 @@ def fix_profiles(cfg):
     for p in cfg["profiles"].values():
         p["crosshair"] = clean_crosshair(p["crosshair"])
         p["monitor"] = max(0, int(p["monitor"]))
+        v = p["variants"] if isinstance(p["variants"], dict) else {}
+        p["variants"] = {k: clean_crosshair(c) for k, c in list(v.items())[:MAX_VARIANTS]
+                         if isinstance(k, str) and RES_KEY.fullmatch(k) and isinstance(c, dict)}
     cfg["profiles"].setdefault("Default", copy.deepcopy(DEFAULT_PROFILE))
     if cfg["active_profile"] not in cfg["profiles"]:
         cfg["active_profile"] = "Default"
     cfg["games"] = {str(k).lower(): v for k, v in cfg["games"].items() if v in cfg["profiles"]}
+    cfg["rules"] = clean_rules(cfg.get("rules"), cfg["profiles"])
+    cfg["startup_delay"] = min(max(int(cfg["startup_delay"]), 0), 120)
+    if cfg["hdr"].get("mode") not in ("Off", "Manual", "Auto"):
+        cfg["hdr"]["mode"] = "Off"
+    cfg["hdr"]["mult"] = min(max(float(cfg["hdr"]["mult"]), 1.0), 3.0)
     return cfg
+
+
+def clean_rules(rules, profiles):
+    """Keep only well-formed rules: {exe, title, match, profile} with an existing profile and a safe regex."""
+    from game_detect import safe_regex
+    out = []
+    for r in rules if isinstance(rules, list) else []:
+        if not isinstance(r, dict):
+            continue
+        rule = {"exe": str(r.get("exe", "")).strip().lower()[:100], "title": str(r.get("title", ""))[:200],
+                "match": r.get("match") if r.get("match") in RULE_MATCH else "contains",
+                "profile": str(r.get("profile", ""))}
+        if rule["profile"] not in profiles or not (rule["exe"] or rule["title"]):
+            continue
+        if rule["match"] == "regex" and rule["title"] and safe_regex(rule["title"]) is None:
+            continue
+        out.append(rule)
+    return out[:MAX_RULES]
+
+
+def active_cross(profile, res):
+    """The profile's crosshair for this game resolution ("2560x1440"), or its default one."""
+    return profile["variants"].get(res) or profile["crosshair"] if res else profile["crosshair"]
 
 
 def migrate_old_folder():

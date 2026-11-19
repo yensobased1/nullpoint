@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 import config
 import library
 import overlay
+import game_detect
+import installs
 import sharing
 import svg_export
 import cs2
@@ -51,6 +53,11 @@ APP_NAME = "Nullpoint"
 OLD_RUN_NAME = "CrosshairOverlay"
 
 
+def run_command():
+    """The 'Start with Windows' entry: same program, plus a flag so the startup delay applies."""
+    return startup_command() + " --autostart"
+
+
 def startup_command():
     if getattr(sys, "frozen", False):
         return f'"{sys.executable}"'
@@ -75,9 +82,11 @@ def migrate_startup():
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
             winreg.QueryValueEx(k, OLD_RUN_NAME)
             winreg.DeleteValue(k, OLD_RUN_NAME)
-            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, startup_command())
+            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, run_command())
     except OSError:
         pass  # no old entry
+    if startup_enabled():  # entries from before 2.2 have no --autostart flag
+        set_startup(True)
 
 
 def startup_enabled():
@@ -92,7 +101,7 @@ def startup_enabled():
 def set_startup(on):
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         if on:
-            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, startup_command())
+            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, run_command())
         else:
             try:
                 winreg.DeleteValue(k, APP_NAME)
@@ -122,6 +131,7 @@ class SettingsWindow(QWidget):
         self.cfg, self.ov, self.on_change = app.cfg, app.ov, app.on_change
         self.loaders = []
         self.loading = False
+        self.variant = ""  # "" = default crosshair, else a resolution variant key
         self.setWindowTitle(tr("Nullpoint - Settings"))
         self.setWindowIcon(app_icon())
         self.resize(940, 620)
@@ -249,6 +259,18 @@ class SettingsWindow(QWidget):
     def profile(self):
         return self.cfg["profiles"][self.cfg["active_profile"]]
 
+    def editing(self):
+        """The crosshair being edited: the profile's default one, or the resolution variant picked in Games."""
+        p = self.profile()
+        return p["variants"].get(self.variant) or p["crosshair"] if self.variant else p["crosshair"]
+
+    def set_cross(self, cross):
+        p = self.profile()
+        if self.variant in p["variants"]:
+            p["variants"][self.variant] = cross
+        else:
+            p["crosshair"] = cross
+
     def target(self, sec):
         p = self.profile()
         if sec == "profile":
@@ -256,8 +278,8 @@ class SettingsWindow(QWidget):
         if sec == "stretch":
             return p["stretch"]
         if sec == "cross":
-            return p["crosshair"]
-        return p["crosshair"][sec]
+            return self.editing()
+        return self.editing()[sec]
 
     # ---------- undo / redo (whole active profile snapshots) ----------
     def record(self, key=None):
@@ -663,6 +685,60 @@ class SettingsWindow(QWidget):
             b.clicked.connect(fn)
             row.addWidget(b)
         lay.addLayout(row)
+        b = QPushButton(icon("search"), tr("Detect installed games..."))
+        b.clicked.connect(self._detect_games)
+        lay.addWidget(b, 0, Qt.AlignLeft)
+
+        g, f, reset = self.group(lay, "Profile rules", [], "tags",
+                                 "Match by program and/or window title. Tested top to bottom, before the list above.")
+        reset.hide()
+        self.rules_list = QListWidget()
+        self.rules_list.setMaximumHeight(110)
+        f.addRow(self.rules_list)
+        row = QHBoxLayout()
+        for text, fn in (("Add rule...", lambda: self._edit_rule(None)), ("Edit...", lambda: self._edit_rule(
+                self.rules_list.currentRow())), ("Remove", self._remove_rule), ("Up", lambda: self._move_rule(-1)),
+                         ("Down", lambda: self._move_rule(1))):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        f.addRow(row)
+        self.loaders.append(self._load_rules)
+
+        g, f, reset = self.group(lay, "Resolution variants (this profile)", [], "compare",
+                                 "A different crosshair for a game window size, e.g. 1440x1080 stretched. "
+                                 "No match = the profile's default crosshair.")
+        reset.hide()
+        self.variant_box = QComboBox()
+        self.variant_box.currentIndexChanged.connect(self._pick_variant)
+        f.addRow(tr("Editing"), self.variant_box)
+        self.res_label = QLabel()
+        self.res_label.setObjectName("muted")
+        f.addRow(self.res_label)
+        row = QHBoxLayout()
+        for text, fn in (("Add for current game size", lambda: self._add_variant(self.app.game_res)),
+                         ("Add size...", lambda: self._add_variant(None)), ("Remove", self._remove_variant)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        f.addRow(row)
+        self.loaders.append(self._load_variants)
+
+        g, f, reset = self.group(lay, "HDR", [], "gradient",
+                                 "Brightens the crosshair when Windows HDR makes it look dim. Never reads the game image.")
+        reset.hide()
+        hb = QComboBox()
+        for val, text in (("Off", "Off"), ("Manual", "Manual"), ("Auto", "Auto (when HDR is on)")):
+            hb.addItem(tr(text), val)
+        hb.setCurrentIndex(max(0, hb.findData(self.cfg["hdr"]["mode"])))
+        hb.currentIndexChanged.connect(lambda i: (self.cfg["hdr"].update(mode=hb.itemData(i)), self.on_change("hdr")))
+        f.addRow(tr("HDR compensation"), hb)
+        mult = QDoubleSpinBox()
+        mult.setRange(1.0, 3.0)
+        mult.setSingleStep(0.1)
+        mult.setValue(self.cfg["hdr"]["mult"])
+        mult.valueChanged.connect(lambda v: (self.cfg["hdr"].update(mult=round(v, 2)), self.on_change("hdr")))
+        f.addRow(tr("Brightness multiplier"), mult)
 
         g, f, reset = self.group(lay, "Display (this profile)", ["offset", "display"])
         self.monitor_box = QComboBox()
@@ -670,8 +746,12 @@ class SettingsWindow(QWidget):
             lambda i: None if self.loading or i < 0 else self.set_value("profile", "monitor", i))
         self.loaders.append(self._load_monitors)
         f.addRow(tr("Monitor"), self.monitor_box)
-        self.add_slider(f, "Offset X px", "profile", "offset_x", -50, 50)
-        self.add_slider(f, "Offset Y px", "profile", "offset_y", -50, 50)
+        offs = [self.add_slider(f, "Offset X px", "profile", "offset_x", -200, 200),
+                self.add_slider(f, "Offset Y px", "profile", "offset_y", -200, 200)]
+        self.offset_spins = [r.itemAt(1).widget() for r in offs]
+        for sp in self.offset_spins:
+            sp.installEventFilter(self)
+            sp.setToolTip(tr("Arrow keys move the crosshair 1 px (Shift: 5 px)."))
         self.add_check(f, "Stretched resolution", "stretch", "on")
         self.add_slider(f, "In-game width", "stretch", "w", 640, 7680)
         self.add_slider(f, "In-game height", "stretch", "h", 480, 4320)
@@ -940,7 +1020,7 @@ class SettingsWindow(QWidget):
             return
         e = self.lib_entries[row]
         self.record()
-        self.profile()["crosshair"] = copy.deepcopy(e["crosshair"])
+        self.set_cross(copy.deepcopy(e["crosshair"]))
         if e["image"]:
             self.profile()["png_path"] = e["image"]
         self.on_change("crosshair")
@@ -1017,7 +1097,7 @@ class SettingsWindow(QWidget):
             self.say(tr("Paste a VALORANT or CS2 code first."), True)
             return
         self.record()
-        self.profile()["crosshair"] = copy.deepcopy(self.val_cross)
+        self.set_cross(copy.deepcopy(self.val_cross))
         self.on_change("crosshair")
         self.refresh()
         self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}")
@@ -1132,7 +1212,7 @@ class SettingsWindow(QWidget):
         b = choice.get("b")
         if b is apply_btn:
             self.record()
-            self.profile()["crosshair"] = cross
+            self.set_cross(cross)
             self.on_change("crosshair")
             self.refresh()
             self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}")
@@ -1319,9 +1399,12 @@ class SettingsWindow(QWidget):
         f.addRow(QLabel(tr("Exclusive fullscreen can't be drawn over by any normal window. "
                            "Use Windowed Fullscreen / Borderless in the game.")))
         for key, label in (("toggle", "Toggle overlay hotkey"), ("settings", "Open settings hotkey"),
-                           ("switcher", "Quick switcher hotkey")):
+                           ("switcher", "Quick switcher hotkey"), ("nudge", "Nudge mode hotkey")):
             ed = QKeySequenceEdit(QKeySequence(self.cfg["hotkeys"][key]))
             ed.setMaximumSequenceLength(1)
+            if key == "nudge":
+                ed.setClearButtonEnabled(True)
+                ed.setToolTip(tr("In game: arrow keys move the crosshair 1 px (Shift: 5 px), Esc to finish. Empty = off."))
             ed.editingFinished.connect(lambda k=key, e=ed: self._set_hotkey(k, e))
             f.addRow(tr(label), ed)
         for key, label, ic in (("hold_hide", "Hide while held", "hide"), ("cheat", "Hotkey cheat sheet (hold)", "keyboard")):
@@ -1344,6 +1427,13 @@ class SettingsWindow(QWidget):
         start.setChecked(startup_enabled())
         start.toggled.connect(self._set_startup)
         f.addRow(tr("Start with Windows"), start)
+        delay = QSpinBox()
+        delay.setRange(0, 120)
+        delay.setSuffix(" s")
+        delay.setValue(self.cfg["startup_delay"])
+        delay.setToolTip(tr("When started with Windows, wait this long before showing the crosshair."))
+        delay.valueChanged.connect(lambda v: self._set_cfg("startup_delay", v))
+        f.addRow(tr("Startup delay"), delay)
         for key, label, ic, kind in (("register_links", "Handle nullpoint:// links", "link", "links"),
                                      ("discord_rpc", "Discord Rich Presence", "presence", "sharing")):
             cb = QCheckBox()
@@ -1479,6 +1569,8 @@ class SettingsWindow(QWidget):
     def refresh(self):
         """Reload every control from config (after profile switch, paste, reset)."""
         self.loading = True
+        if self.variant not in self.profile()["variants"]:
+            self.variant = ""
         self.profile_box.blockSignals(True)
         self.profile_box.clear()
         self.profile_box.addItems(sorted(self.cfg["profiles"], key=lambda n: (n != "Default", n.lower())))
@@ -1497,6 +1589,170 @@ class SettingsWindow(QWidget):
         self.loading = False
         self.update_display_info()
         self.preview.update()
+
+    # ---------- offset nudge (arrow keys in the offset fields) ----------
+    def eventFilter(self, obj, e):
+        if e.type() == e.Type.KeyPress and obj in getattr(self, "offset_spins", ()):
+            d = {Qt.Key_Left: (-1, 0), Qt.Key_Right: (1, 0), Qt.Key_Up: (0, -1), Qt.Key_Down: (0, 1)}.get(e.key())
+            if d:
+                step = 5 if e.modifiers() & Qt.ShiftModifier else 1
+                for sp, v in zip(self.offset_spins, d):
+                    if v:
+                        sp.setValue(sp.value() + v * step)
+                return True
+        return super().eventFilter(obj, e)
+
+    # ---------- profile rules ----------
+    def _load_rules(self):
+        self.rules_list.clear()
+        for r in self.cfg["rules"]:
+            parts = [r["exe"]] if r["exe"] else []
+            if r["title"]:
+                parts.append(f'{tr("title")} {tr(r["match"])} "{r["title"]}"')
+            self.rules_list.addItem(f'{" + ".join(parts)}  ->  {r["profile"]}')
+
+    def _edit_rule(self, idx):
+        rules = self.cfg["rules"]
+        if idx is not None and not 0 <= idx < len(rules):
+            return
+        r = rules[idx] if idx is not None else {"exe": "", "title": "", "match": "contains",
+                                                 "profile": self.cfg["active_profile"]}
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Profile rule"))
+        form = QFormLayout(dlg)
+        exe, title = QLineEdit(r["exe"]), QLineEdit(r["title"])
+        exe.setMaxLength(100)
+        title.setMaxLength(200)
+        exe.setPlaceholderText("game.exe")
+        match, prof = QComboBox(), QComboBox()
+        for m in config.RULE_MATCH:
+            match.addItem(tr(m), m)
+        match.setCurrentIndex(max(0, match.findData(r["match"])))
+        prof.addItems(sorted(self.cfg["profiles"]))
+        prof.setCurrentText(r["profile"])
+        for label, w in (("Program (optional)", exe), ("Window title (optional)", title), ("Match", match),
+                         ("Profile", prof)):
+            form.addRow(tr(label), w)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        new = {"exe": exe.text().strip().lower(), "title": title.text(), "match": match.currentData(),
+               "profile": prof.currentText()}
+        if not (new["exe"] or new["title"]):
+            self.say(tr("A rule needs a program or a window title."), True)
+            return
+        if new["match"] == "regex" and new["title"] and game_detect.safe_regex(new["title"]) is None:
+            self.say(tr("That regex is invalid or could be very slow (nested repeats, backreferences). Max 100 characters."), True)
+            return
+        if idx is None:
+            rules.append(new)
+        else:
+            rules[idx] = new
+        self.cfg["rules"] = config.clean_rules(rules, self.cfg["profiles"])
+        self.on_change("general")
+        self._load_rules()
+
+    def _remove_rule(self):
+        i = self.rules_list.currentRow()
+        if 0 <= i < len(self.cfg["rules"]):
+            del self.cfg["rules"][i]
+            self.on_change("general")
+            self._load_rules()
+
+    def _move_rule(self, d):
+        i, rules = self.rules_list.currentRow(), self.cfg["rules"]
+        if 0 <= i < len(rules) and 0 <= i + d < len(rules):
+            rules[i], rules[i + d] = rules[i + d], rules[i]
+            self.on_change("general")
+            self._load_rules()
+            self.rules_list.setCurrentRow(i + d)
+
+    # ---------- detected installs ----------
+    def _detect_games(self):
+        found = installs.detect(self.cfg["games"])
+        if not found:
+            self.say(tr("No new games found in the Epic, Riot or Battle.net install lists."))
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Detected games"))
+        lay = QVBoxLayout(dlg)
+        lst = QListWidget()
+        for g in found:
+            it = QListWidgetItem(f'{g["name"]}  ({g["exe"]}, {g["source"]})')
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Checked)
+            lst.addItem(it)
+        lay.addWidget(lst)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText(tr("Create profiles"))
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        made = []
+        for i, g in enumerate(found):
+            if lst.item(i).checkState() != Qt.Checked:
+                continue
+            name = g["name"]
+            n = 2
+            while name in self.cfg["profiles"] and self.cfg["games"].get(g["exe"]) != name:
+                name, n = f'{g["name"]} {n}', n + 1
+            self.cfg["profiles"].setdefault(name, copy.deepcopy(self.cfg["profiles"]["Default"]))
+            self.cfg["games"][g["exe"]] = name
+            made.append(name)
+        self.on_change("general")
+        self.refresh()
+        self.say(f"{tr('Profiles created')}: {', '.join(made)}" if made else tr("Nothing selected."))
+
+    # ---------- resolution variants ----------
+    def _load_variants(self):
+        self.variant_box.blockSignals(True)
+        self.variant_box.clear()
+        self.variant_box.addItem(tr("Default crosshair"), "")
+        for k in sorted(self.profile()["variants"]):
+            self.variant_box.addItem(k, k)
+        self.variant_box.setCurrentIndex(max(0, self.variant_box.findData(self.variant)))
+        self.variant_box.blockSignals(False)
+        cur = self.app.game_res or "-"
+        self.res_label.setText(f"{tr('Current game window')}: {cur}")
+
+    def _pick_variant(self, i):
+        self.variant = self.variant_box.itemData(i) or ""
+        self.refresh()
+        if self.variant:
+            self.say(f"{tr('Editing the variant for')} {self.variant}")
+
+    def _add_variant(self, res):
+        if not res:
+            res, ok = QInputDialog.getText(self, tr("Add size..."), tr("Game window size (e.g. 1440x1080):"))
+            if not ok:
+                return
+            res = res.strip().lower().replace(" ", "")
+        p = self.profile()
+        if not config.RES_KEY.fullmatch(res or ""):
+            self.say(tr("Use WIDTHxHEIGHT, e.g. 1920x1080 (start a game first to use its size)."), True)
+            return
+        if res not in p["variants"] and len(p["variants"]) >= config.MAX_VARIANTS:
+            self.say(tr("A profile can have up to 8 variants."), True)
+            return
+        self.record()
+        p["variants"].setdefault(res, copy.deepcopy(p["crosshair"]))
+        self.variant = res
+        self.on_change("crosshair")
+        self.refresh()
+
+    def _remove_variant(self):
+        p = self.profile()
+        if self.variant in p["variants"]:
+            self.record()
+            del p["variants"][self.variant]
+            self.variant = ""
+            self.on_change("crosshair")
+            self.refresh()
 
     def _pick_profile(self, name):
         if name and name in self.cfg["profiles"] and name != self.cfg["active_profile"]:
@@ -1539,8 +1795,8 @@ class SettingsWindow(QWidget):
         self.record()
         p = self.profile()
         p["png_path"] = path
-        p["crosshair"]["mode"] = "png"
-        p["crosshair"]["png"].update(scale=100, rot=0)
+        self.target("cross")["mode"] = "png"
+        self.target("png").update(scale=100, rot=0)
         self.on_change("crosshair")
         self.refresh()
         self.say(f"{tr('Applied')}: {os.path.basename(path)} ({self.cfg['active_profile']})")
@@ -1556,7 +1812,7 @@ class SettingsWindow(QWidget):
             self.say(f"{tr('Invalid code')}: {e}", True)
             return
         self.record()
-        self.profile()["crosshair"] = cross
+        self.set_cross(cross)
         self.on_change("crosshair")
         self.refresh()
         msg = f"{tr('Code applied to profile')}: {self.cfg['active_profile']}"
@@ -1659,7 +1915,7 @@ class SettingsWindow(QWidget):
 
     def _set_hotkey(self, key, edit):
         seq = edit.keySequence().toString()
-        if seq and seq != self.cfg["hotkeys"][key]:
+        if (seq or key == "nudge") and seq != self.cfg["hotkeys"][key]:
             self.cfg["hotkeys"][key] = seq
             self.on_change("hotkeys")
 
