@@ -30,5 +30,22 @@ class HotkeyTests(unittest.TestCase):
         self.assertIsNone(hold_vk("nonsense"))
 
 
+
+class ToolsTests(unittest.TestCase):
+    def test_edpi_and_portable_copy(self):
+        import tempfile
+        import tools
+        self.assertEqual(tools.edpi(800, 0.35), 280)
+        self.assertIsInstance(tools.on_battery(), bool)
+        with tempfile.TemporaryDirectory() as d:
+            exe, data = os.path.join(d, "x.exe"), os.path.join(d, "appdata")
+            os.makedirs(data)
+            open(exe, "wb").write(b"MZ")
+            open(os.path.join(data, "config.json"), "w").write("{}")
+            tools.make_portable(os.path.join(d, "out"), exe, data)
+            for name in ("Nullpoint.exe", "portable.txt", os.path.join("data", "config.json")):
+                self.assertTrue(os.path.exists(os.path.join(d, "out", name)), name)
+
+
 if __name__ == "__main__":
     unittest.main()

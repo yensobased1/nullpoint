@@ -25,6 +25,7 @@ from alignment import AlignmentWindow
 from hotkeys import hold_vk, is_down, to_win_hotkey
 from popups import InfoCard, QuickSwitcher
 import library
+import tools
 import sharing
 from presence import Presence
 from stream_server import StreamServer
@@ -128,6 +129,8 @@ class App:
             self.save_timer.start()
             self.updates.check(self.cfg["update_repo"])
         self.register_hotkeys()
+        self.low_power = False
+        self.power_check = 0
         self.timer = QTimer(interval=500)  # cheap poll: a few Win32 calls, no redraw unless something moved
         self.timer.timeout.connect(self.poll)
         self.timer.start()
@@ -286,6 +289,9 @@ class App:
             self.register_hotkeys()
         elif kind == "stream":
             self.apply_stream_safe()
+        elif kind == "power":
+            self.power_check = 0
+            self.update_power()
         elif kind == "sharing":
             self.apply_sharing()
         elif kind == "links":
@@ -345,7 +351,22 @@ class App:
         self.place()
 
     # ---------- foreground polling ----------
+    def update_power(self):
+        mode = self.cfg["low_power"]
+        low = mode == "On" or (mode == "Auto" and tools.on_battery())
+        if low != self.low_power:
+            self.low_power = low
+            self.timer.setInterval(1500 if low else 500)
+            self.hold_timer.setInterval(100 if low else 40)
+            self.ov.low_power = low
+            self.ov._update_timer()
+            self.ov.update()
+
     def poll(self):
+        self.power_check -= 1
+        if self.power_check <= 0:  # battery state: every ~30 s is plenty
+            self.power_check = 20 if self.low_power else 60
+            self.update_power()
         hwnd, pid, exe = game_detect.foreground()
         if not hwnd or pid == os.getpid():
             return  # our own settings window / tray menu: keep the current profile

@@ -5,8 +5,13 @@ import os
 import shutil
 import time
 
+import sys
+
 APPDATA = os.environ.get("APPDATA", os.path.expanduser("~"))
-CONFIG_DIR = os.path.join(APPDATA, "Nullpoint")
+EXE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else None
+# Portable mode: portable.txt next to Nullpoint.exe -> keep everything in a "data" folder beside it.
+PORTABLE = bool(EXE_DIR) and os.path.exists(os.path.join(EXE_DIR, "portable.txt"))
+CONFIG_DIR = os.path.join(EXE_DIR, "data") if PORTABLE else os.path.join(APPDATA, "Nullpoint")
 OLD_DIR = os.path.join(APPDATA, "CrosshairOverlay")  # name before the Nullpoint rename
 DEFAULT_UPDATE_REPO = "yensobased1/nullpoint"
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
@@ -72,6 +77,8 @@ DEFAULT_CONFIG = {
     "stream_page": {"on": False, "port": 7373},  # local page for OBS browser sources, 127.0.0.1 only
     "discord_rpc": False,
     "discord_client_id": "",
+    "low_power": "Auto",  # Auto (on battery) / On / Off: slower polling, animations paused
+    "edpi_saved": [],
 }
 
 
@@ -129,7 +136,7 @@ def fix_profiles(cfg):
 def migrate_old_folder():
     """First start after the rename: copy %APPDATA%\\CrosshairOverlay (config, library, custom images) to
     %APPDATA%\\Nullpoint and point saved image paths at the copies. The old folder is left untouched."""
-    if os.path.exists(CONFIG_DIR) or not os.path.isdir(OLD_DIR):
+    if PORTABLE or os.path.exists(CONFIG_DIR) or not os.path.isdir(OLD_DIR):
         return False
     shutil.copytree(OLD_DIR, CONFIG_DIR)
     old_prefix = os.path.normcase(os.path.join(OLD_DIR, ""))

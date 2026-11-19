@@ -21,6 +21,7 @@ import library
 import overlay
 import sharing
 from editor import EditorTab
+import tools
 from hotkeys import HOLD_CHOICES, hold_vk
 from preview import PixelView, PreviewPanel, render_image
 from share_code import FIELDS, ShareCodeError, export_code, import_code
@@ -171,7 +172,14 @@ class SettingsWindow(QWidget):
         self.tabs.addTab(self.scroll(self._share_tab()), tr("Share"))
         self.gallery_page = self._gallery_tab()
         self.tabs.addTab(self.gallery_page, icon("gallery"), tr("Gallery"))
-        self.tabs.addTab(self.scroll(self._app_tab()), tr("App Settings"))
+        self.tools_page = tools.ToolsTab(self.cfg, self.on_change)
+        self.tabs.addTab(self.tools_page, icon("calculator"), tr("Tools"))
+        self.app_page = self.scroll(self._app_tab())
+        self.tabs.addTab(self.app_page, tr("App Settings"))
+        self.monitor_timer = QTimer(self, interval=2000)  # resource monitor: only while App Settings is open
+        self.monitor_timer.timeout.connect(self.update_monitor)
+        self.tabs.currentChanged.connect(lambda i: self.monitor_timer.start() if self.tabs.widget(i) is self.app_page
+                                         else self.monitor_timer.stop())
         # The editor has its own 1x/4x preview and needs the room.
         self.tabs.currentChanged.connect(lambda i: self.left.setVisible(self.tabs.widget(i) is not self.editor))
         self.tabs.currentChanged.connect(
@@ -1183,6 +1191,33 @@ class SettingsWindow(QWidget):
         row.addStretch()
         f.addRow(tr("Stream page (OBS browser source)"), row)
         f.addRow(QLabel(tr("Local only (127.0.0.1). Add the URL as a Browser Source in OBS / Streamlabs.")))
+        lp = QComboBox()
+        for val in ("Auto", "On", "Off"):
+            lp.addItem(tr(val), val)
+        lp.setCurrentIndex(max(0, lp.findData(self.cfg["low_power"])))
+        lp.currentIndexChanged.connect(lambda i: self._set_cfg("low_power", lp.itemData(i), "power"))
+        row = QHBoxLayout()
+        pic = QLabel()
+        pic.setPixmap(icon("battery").pixmap(16, 16))
+        row.addWidget(pic)
+        row.addWidget(lp, 1)
+        f.addRow(tr("Low-power mode"), row)
+        f.addRow(QLabel(tr("Auto = on battery: slower game detection, rainbow / GIF animation paused.")))
+        row = QHBoxLayout()
+        pic = QLabel()
+        pic.setPixmap(icon("cpu").pixmap(16, 16))
+        self.monitor_label = QLabel("-")
+        row.addWidget(pic)
+        row.addWidget(self.monitor_label, 1)
+        f.addRow(tr("Nullpoint resource use"), row)
+        row = QHBoxLayout()
+        b = QPushButton(icon("usb"), tr("Make portable copy..."))
+        b.clicked.connect(self._make_portable)
+        row.addWidget(b)
+        if config.PORTABLE:
+            row.addWidget(QLabel(tr("Running in portable mode.")))
+        row.addStretch()
+        f.addRow(tr("Portable mode"), row)
 
         stream = QCheckBox()
         stream.setChecked(self.cfg["stream_safe"])
@@ -1395,6 +1430,29 @@ class SettingsWindow(QWidget):
         if seq and seq != self.cfg["hotkeys"][key]:
             self.cfg["hotkeys"][key] = seq
             self.on_change("hotkeys")
+
+    def update_monitor(self):
+        import psutil
+        proc = getattr(self, "_proc", None) or psutil.Process()
+        self._proc = proc
+        cpu = proc.cpu_percent(None) / (psutil.cpu_count() or 1)  # first call returns 0, then since last call
+        self.monitor_label.setText(f"CPU {cpu:.1f} %   RAM {proc.memory_info().rss / 1048576:.0f} MB")
+
+    def _make_portable(self):
+        exe = tools.current_exe()
+        if not exe:
+            self.say(tr("Build Nullpoint.exe first (build.bat), then make a portable copy."), True)
+            return
+        dest = QFileDialog.getExistingDirectory(self, tr("Choose an empty folder or USB drive"))
+        if not dest:
+            return
+        dest = os.path.join(dest, "Nullpoint")
+        try:
+            config.save(self.cfg)
+            tools.make_portable(dest, exe, config.CONFIG_DIR)
+            self.say(f"{tr('Portable copy created')}: {dest}")
+        except OSError as e:
+            self.say(f"{tr('Could not create the portable copy')}: {e}", True)
 
     def _set_hold_key(self, key, text):
         text = text.strip()
