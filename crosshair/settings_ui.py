@@ -20,6 +20,7 @@ import config
 import library
 import overlay
 import sharing
+import cs2
 import valorant
 from editor import EditorTab
 import tools
@@ -689,13 +690,13 @@ class SettingsWindow(QWidget):
         hint.setObjectName("muted")
         f.addRow(hint)
 
-        g, f, reset = self.group(lay, "Import VALORANT code", [], "link",
-                                 "Paste a VALORANT crosshair code, e.g. from vcrdb.net (its Copy Code button).")
+        g, f, reset = self.group(lay, "Import VALORANT / CS2 code", [], "link",
+                                 "Paste a VALORANT code (0;P;...) e.g. from vcrdb.net, or a CS2 / CS:GO code (CSGO-...).")
         reset.hide()
         self.val_edit = QPlainTextEdit()
         self.val_edit.setPlaceholderText("0;P;c;5;h;0;0l;4;0o;2;0a;1;0f;0;1b;0")
         self.val_edit.setFixedHeight(64)
-        self.val_edit.setAccessibleName(tr("Import VALORANT code"))
+        self.val_edit.setAccessibleName(tr("Import VALORANT / CS2 code"))
         self.val_edit.textChanged.connect(self._val_preview)
         f.addRow(self.val_edit)
         self.val_cross = None
@@ -934,6 +935,9 @@ class SettingsWindow(QWidget):
             self.load_library()
 
     # ---------- VALORANT codes ----------
+    def screen_h(self):
+        return self.app.native[1] or 1080
+
     def val_scale(self):
         h = self.app.native[1]
         return h / 1080 if self.cfg["valorant_scale_1080"] and h else 1.0
@@ -945,10 +949,16 @@ class SettingsWindow(QWidget):
             self.val_note.setText("")
         else:
             try:
-                self.val_cross = valorant.convert(text, self.val_scale())
-                scale = self.val_scale()
-                self.val_note.setText(tr("Converted from VALORANT") + (f" ({tr('size scale')} {scale:.2f}x)" if scale != 1
-                                                                       else f" ({tr('exact pixels')})"))
+                self.val_cross, kind = valorant.import_any(text, self.val_scale(), self.screen_h())
+                if kind == "cs2":
+                    note = tr("Converted from CS2") + f" ({tr('sized for')} {self.screen_h()}p)"
+                elif kind == "valorant":
+                    scale = self.val_scale()
+                    note = tr("Converted from VALORANT") + (f" ({tr('size scale')} {scale:.2f}x)" if scale != 1
+                                                           else f" ({tr('exact pixels')})")
+                else:
+                    note = tr("Nullpoint code")
+                self.val_note.setText(note)
                 self.val_note.setStyleSheet(f"color: {theme.tokens['ok']};")
             except ShareCodeError as e:
                 self.val_note.setText(f"{tr('Invalid code')}: {e}")
@@ -964,21 +974,23 @@ class SettingsWindow(QWidget):
 
     def _val_apply(self):
         if not self.val_cross:
-            self.say(tr("Paste a VALORANT code first."), True)
+            self.say(tr("Paste a VALORANT or CS2 code first."), True)
             return
         self.record()
         self.profile()["crosshair"] = copy.deepcopy(self.val_cross)
         self.on_change("crosshair")
         self.refresh()
-        self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}. {tr('Converted from VALORANT')}")
+        self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}")
 
     def _val_save(self):
         if not self.val_cross:
-            self.say(tr("Paste a VALORANT code first."), True)
+            self.say(tr("Paste a VALORANT or CS2 code first."), True)
             return
-        name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"), text="VALORANT")
+        name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"),
+                                        text="CS2" if cs2.is_cs2(self.val_edit.toPlainText()) else "VALORANT")
         if ok and name.strip():
-            library.add(name.strip(), copy.deepcopy(self.val_cross), tags=["valorant"])
+            library.add(name.strip(), copy.deepcopy(self.val_cross),
+                        tags=["cs2"] if cs2.is_cs2(self.val_edit.toPlainText()) else ["valorant"])
             self.say(tr("Added to library"))
 
     # ---------- share card / QR import / confirm ----------
@@ -1030,12 +1042,13 @@ class SettingsWindow(QWidget):
     def confirm_import(self, code, source=""):
         """Preview + 'Import this crosshair?'. Nothing changes unless the user picks an action."""
         try:
-            cross, kind = valorant.import_any(code, self.val_scale())
+            cross, kind = valorant.import_any(code, self.val_scale(), self.screen_h())
         except ShareCodeError as e:
             self.say(f"{tr('Invalid code')}: {e}", True)
             return
-        if kind == "valorant":
-            source = (source + "  -  " if source else "") + tr("Converted from VALORANT")
+        if kind in ("valorant", "cs2"):
+            source = (source + "  -  " if source else "") + tr(
+                "Converted from VALORANT" if kind == "valorant" else "Converted from CS2")
         self.show()
         self.raise_()
         dlg = QDialog(self)
@@ -1477,7 +1490,7 @@ class SettingsWindow(QWidget):
 
     def _paste_code(self):
         try:
-            cross, kind = valorant.import_any(QGuiApplication.clipboard().text(), self.val_scale())
+            cross, kind = valorant.import_any(QGuiApplication.clipboard().text(), self.val_scale(), self.screen_h())
         except ShareCodeError as e:
             self.say(f"{tr('Invalid code')}: {e}", True)
             return
@@ -1486,8 +1499,8 @@ class SettingsWindow(QWidget):
         self.on_change("crosshair")
         self.refresh()
         msg = f"{tr('Code applied to profile')}: {self.cfg['active_profile']}"
-        if kind == "valorant":
-            msg += ". " + tr("Converted from VALORANT")
+        if kind in ("valorant", "cs2"):
+            msg += ". " + tr("Converted from VALORANT" if kind == "valorant" else "Converted from CS2")
         if cross["mode"] == "png":
             msg += ". " + tr("Image codes hold settings only - pick the image on the Image tab.")
         self.say(msg)

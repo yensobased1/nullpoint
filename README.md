@@ -12,8 +12,8 @@
 - **Per-game profiles**: auto-switches when you focus Fortnite, VALORANT, CS2, Apex, Overwatch 2, Roblox, Minecraft, Warzone, or any game you add
 - **True centering**: centers on the game window (windowed / borderless / stretched / multi-monitor) with X/Y fine-tune
 - **Share codes**: copy/paste a short code, QR, share card PNG, `nullpoint://import/...` links, import from a QR screenshot
-- **Import VALORANT codes** (e.g. from [vcrdb.net](https://www.vcrdb.net/)): paste the code on the Share tab; it's
-  converted locally (nothing is fetched) and sized to match in game
+- **Import VALORANT and CS2 / CS:GO codes** (e.g. from [vcrdb.net](https://www.vcrdb.net/), or `CSGO-...` share codes):
+  paste the code on the Share tab; it's converted locally (nothing is fetched) and sized to match in game
 - **Community gallery**: browse and import crosshairs from [`gallery/`](gallery/) ([add yours](gallery/CONTRIBUTING.md))
 - **Library & backup**: thumbnails, tags, search, favorites, compare mode; export/import everything as one file
 - **Workflow**: hold-to-hide (e.g. Mouse2), quick switcher (Alt+X), hotkey cheat sheet (hold F1), settings search,

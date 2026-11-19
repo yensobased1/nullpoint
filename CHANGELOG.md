@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.1.3
+- **Import CS2 / CS:GO crosshair codes** (`CSGO-xxxxx-...`) in the same box as VALORANT codes, plus Paste Code,
+  `nullpoint://` links and QR images. Sized like the game draws it at your screen height.
+- VALORANT codes now convert 1:1 in pixels (VALORANT doesn't scale its crosshair with resolution). "Keep 1080p size"
+  is optional and off by default.
+- The import preview no longer counts hidden lines, so it zooms in properly.
+
 ## v2.1.2
 - **Import VALORANT codes** (e.g. from vcrdb.net): paste a VALORANT crosshair code on the Share tab, see a live
   preview and apply it or save it to the library. Paste Code, `nullpoint://` links and QR images accept them too.

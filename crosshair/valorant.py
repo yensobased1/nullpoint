@@ -94,9 +94,12 @@ def convert(text, scale=1.0):
     return cross
 
 
-def import_any(text, scale=1.0):
-    """Nullpoint (XH...) or VALORANT (0;...) code -> (crosshair, 'nullpoint' | 'valorant')."""
+def import_any(text, scale=1.0, screen_height=1080):
+    """Nullpoint (XH...), VALORANT (0;...) or CS2 (CSGO-...) code -> (crosshair, 'nullpoint' | 'valorant' | 'cs2')."""
+    import cs2
     text = (text or "").strip()
     if is_valorant(text):
         return convert(text, scale), "valorant"
+    if cs2.is_cs2(text):
+        return cs2.convert(text, screen_height), "cs2"
     return import_code(text), "nullpoint"

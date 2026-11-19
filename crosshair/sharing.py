@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 
 import overlay
+import cs2
 import valorant
 from share_code import ShareCodeError, import_code
 from ui.i18n import tr
@@ -61,6 +62,10 @@ def decode_qr(img):
         m = CODE_RE.search(t)
         if m:
             import_code(m.group(0))  # validates; raises ShareCodeError
+            return m.group(0)
+        m = cs2.CODE_RE.search(t)
+        if m:
+            cs2.decode(m.group(0))  # validates (checksum)
             return m.group(0)
         t = re.sub(r"\s+", "", t)
         if VAL_RE.fullmatch(t):
@@ -132,6 +137,8 @@ def code_from_link(text):
     try:
         if VAL_RE.fullmatch(code):
             valorant.convert(code)
+        elif cs2.CODE_RE.fullmatch(code):
+            cs2.decode(code)
         elif CODE_RE.fullmatch(code):
             import_code(code)
         else:
