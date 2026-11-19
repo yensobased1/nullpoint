@@ -190,10 +190,11 @@ def extent(cross, pixmap=None):
     o += cross["shadow"]["size"] if cross["shadow"]["on"] else 0
     if cross["mode"] == "text":
         return int(cross["text"]["size"] * 1.2) + o + 2
-    r = cross["dot"]["size"]
+    r = cross["dot"]["size"] if cross["dot"]["on"] else 1
     for k in ("inner", "outer"):
         s = cross[k]
-        r = max(r, s["gap"] + max(s["len"], s["vlen"]) + s["thick"])
+        if s["on"]:
+            r = max(r, s["gap"] + max(s["len"], s["vlen"] if s["vsep"] else s["len"]) + s["thick"])
     if cross["shape"] in ("square", "chevron", "x", "hexagon", "triangle", "diamond", "plus") or cross["rot"]:
         r = int(r * 1.42) + 1  # diagonal of a box / rotated arm
     ring = cross["ring"]

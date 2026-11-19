@@ -83,7 +83,9 @@ DEFAULT_CONFIG = {
     "last_version": "",  # shows the changelog once after an update
     "ui_scale": 100,  # settings text scale: 100 / 125 / 150
     "large_text": False,
-    "valorant_scale": True,  # VALORANT codes: scale sizes by game height / 1080 to match in-game
+    # VALORANT draws its crosshair in raw pixels (no resolution scaling), so imports are 1:1 by default.
+    # On = scale by screen height / 1080 to keep the look you had at 1080p.
+    "valorant_scale_1080": False,
 }
 
 

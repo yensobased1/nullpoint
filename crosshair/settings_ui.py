@@ -712,10 +712,11 @@ class SettingsWindow(QWidget):
             b = QPushButton(tr(text))
             b.clicked.connect(fn)
             col.addWidget(b)
-        acc = QCheckBox(tr("VALORANT-accurate size"))
-        acc.setChecked(self.cfg["valorant_scale"])
-        acc.setToolTip(tr("VALORANT sizes its crosshair to the screen height. On: scale by height / 1080. Off: use the values as pixels."))
-        acc.toggled.connect(lambda v: (self._set_cfg("valorant_scale", v), self._val_preview()))
+        acc = QCheckBox(tr("Keep 1080p size"))
+        acc.setChecked(self.cfg["valorant_scale_1080"])
+        acc.setToolTip(tr("Off (default): exact VALORANT pixels, the same as in game at any resolution. "
+                          "On: scale by screen height / 1080, e.g. to match a crosshair you used at 1080p."))
+        acc.toggled.connect(lambda v: (self._set_cfg("valorant_scale_1080", v), self._val_preview()))
         col.addWidget(acc)
         col.addStretch()
         row.addLayout(col)
@@ -935,7 +936,7 @@ class SettingsWindow(QWidget):
     # ---------- VALORANT codes ----------
     def val_scale(self):
         h = self.app.native[1]
-        return h / 1080 if self.cfg["valorant_scale"] and h else 1.0
+        return h / 1080 if self.cfg["valorant_scale_1080"] and h else 1.0
 
     def _val_preview(self):
         text = self.val_edit.toPlainText().strip()
@@ -945,7 +946,9 @@ class SettingsWindow(QWidget):
         else:
             try:
                 self.val_cross = valorant.convert(text, self.val_scale())
-                self.val_note.setText(tr("Converted from VALORANT") + f" ({tr('size scale')} {self.val_scale():.2f}x)")
+                scale = self.val_scale()
+                self.val_note.setText(tr("Converted from VALORANT") + (f" ({tr('size scale')} {scale:.2f}x)" if scale != 1
+                                                                       else f" ({tr('exact pixels')})"))
                 self.val_note.setStyleSheet(f"color: {theme.tokens['ok']};")
             except ShareCodeError as e:
                 self.val_note.setText(f"{tr('Invalid code')}: {e}")

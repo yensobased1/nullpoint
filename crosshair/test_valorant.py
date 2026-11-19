@@ -97,5 +97,24 @@ class ValorantLinkQrTests(unittest.TestCase):
         self.assertEqual(sharing.decode_qr(sharing.qr_image(code)), code)
 
 
+
+class ValorantPixelTests(unittest.TestCase):
+    def test_screenshot_code_renders_exact_pixels(self):
+        """vcrdb 'yay': 0;P;h;0;f;0;0l;4;0o;0;0a;1;0f;0;1b;0 = solid 2 px plus, 4 px arms, no outline, at 1:1."""
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])  # noqa: F841
+        import overlay
+        from preview import render_image
+        cr = valorant.convert("0;P;h;0;f;0;0l;4;0o;0;0a;1;0f;0;1b;0")
+        c = overlay.extent(cr)
+        img = render_image(lambda p, cc: overlay.render(p, cr, cc), c)
+        px = {(x - c, y - c) for y in range(img.height()) for x in range(img.width()) if img.pixelColor(x, y).alpha()}
+        want = {(x, y) for x in range(-4, 4) for y in (-1, 0)} | {(x, y) for y in range(-4, 4) for x in (-1, 0)}
+        self.assertEqual(px, want)
+        self.assertLess(c, 12)  # hidden outer lines no longer blow up the size
+
+
 if __name__ == "__main__":
     unittest.main()
