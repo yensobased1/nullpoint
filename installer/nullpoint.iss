@@ -1,5 +1,5 @@
 ; Nullpoint per-user installer (no admin). Build: build.bat, or ISCC.exe installer\nullpoint.iss
-#define AppVersion "2.1.2"
+#define AppVersion "2.1.3"
 
 [Setup]
 AppId={{6B0D8D2E-6E1B-4C55-9C1F-6B9D2C0A7E31}
