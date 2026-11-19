@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.1.1
+- Fixed: Windows' accent color (e.g. purple) showing on the changelog box and square buttons; they now follow the
+  black and white theme in dark and light mode.
+
 ## v2.1.0
 - **Crosshair visuals:** soft shadow, gradient lines (center to tip), solid / dashed / dotted lines, new shapes
   (Hexagon, Triangle, Diamond, thick Plus), text / symbol crosshairs with any font, colorblind presets.
