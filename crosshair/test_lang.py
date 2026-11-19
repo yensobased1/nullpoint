@@ -11,7 +11,7 @@ class LangTests(unittest.TestCase):
     def test_arabic_covers_every_english_key(self):
         with open(os.path.join(LANG, "en.json"), encoding="utf-8") as f:
             en = json.load(f)
-        for code in ("ar",):
+        for code in ("ar", "es", "pt_BR", "fr", "tr"):
             with open(os.path.join(LANG, code + ".json"), encoding="utf-8") as f:
                 self.assertEqual(set(en) - set(json.load(f)), set(), code)
 

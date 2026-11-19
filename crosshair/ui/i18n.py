@@ -5,7 +5,9 @@ import sys
 
 LANG_DIR = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                         "lang")
-LANGUAGES = {"en": "English", "ar": "العربية"}
+# es / pt_BR / fr / tr are machine-translated: fixes welcome (edit lang/<code>.json, keys are the English text).
+LANGUAGES = {"en": "English", "ar": "العربية", "es": "Español", "pt_BR": "Português (Brasil)", "fr": "Français",
+             "tr": "Türkçe"}
 RTL = {"ar"}
 _table = {}
 current = "en"
