@@ -12,6 +12,8 @@
 - **Per-game profiles**: auto-switches when you focus Fortnite, VALORANT, CS2, Apex, Overwatch 2, Roblox, Minecraft, Warzone, or any game you add
 - **True centering**: centers on the game window (windowed / borderless / stretched / multi-monitor) with X/Y fine-tune
 - **Share codes**: copy/paste a short code, QR, share card PNG, `nullpoint://import/...` links, import from a QR screenshot
+- **Import VALORANT codes** (e.g. from [vcrdb.net](https://www.vcrdb.net/)): paste the code on the Share tab; it's
+  converted locally (nothing is fetched) and sized to match in game
 - **Community gallery**: browse and import crosshairs from [`gallery/`](gallery/) ([add yours](gallery/CONTRIBUTING.md))
 - **Library & backup**: thumbnails, tags, search, favorites, compare mode; export/import everything as one file
 - **Workflow**: hold-to-hide (e.g. Mouse2), quick switcher (Alt+X), hotkey cheat sheet (hold F1), settings search,
@@ -173,7 +175,7 @@ XH3 adds: `h` shadow (on, size 0-6, opacity), `y` gradient (on, tip color), `l` 
 (`s` solid / `d` dashed / `o` dotted, dash 1-10, gap 1-10), `x` text (%-encoded characters, size 8-96, bold,
 opacity, %-encoded font), mode `t` = text, shapes `6` hexagon, `3` triangle, `4` diamond, `p` plus.
 The table below lists the XH2 fields, which XH3 keeps unchanged.
-Our own format, not compatible with VALORANT codes. Example:
+Our own format. VALORANT codes can be imported (Share tab), but Nullpoint codes are not VALORANT codes. Example:
 
 ```
 XH2;m:l;c:00FFFF;o:1,1,0.5;d:1,2,1;i:1,6,2,3,0.8,0,6;e:0,2,2,10,0.35,0,2;p:100,1,0;g:0,10,1,1,0,20,0;w:0,5,1;s:c;r:0;k:1,00FFFF,00FFFF,00FFFF,000000

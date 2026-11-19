@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.1.2
+- **Import VALORANT codes** (e.g. from vcrdb.net): paste a VALORANT crosshair code on the Share tab, see a live
+  preview and apply it or save it to the library. Paste Code, `nullpoint://` links and QR images accept them too.
+  "VALORANT-accurate size" scales it to your screen height so it matches in game.
+- Dashed lines now always look different from dotted lines.
+- No more Windows accent color (e.g. purple) in drop-down lists.
+- The settings only show what the current Mode uses (Line crosshair / Text / Image).
+- Fixed: per-part color boxes stayed visible with "Use same color for all" ticked.
+
 ## v2.1.1
 - Fixed: Windows' accent color (e.g. purple) showing on the changelog box and square buttons; they now follow the
   black and white theme in dark and light mode.

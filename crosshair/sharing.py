@@ -13,12 +13,14 @@ from PySide6.QtCore import QObject, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 
 import overlay
+import valorant
 from share_code import ShareCodeError, import_code
 from ui.i18n import tr
 
 PROTOCOL = "nullpoint"
 LINK_PREFIX = "nullpoint://import/"
 CODE_RE = re.compile(r"XH\d;[A-Za-z0-9;:,.%_\-]{1,600}")  # only share-code characters, nothing else
+VAL_RE = re.compile(r"0;[A-Za-z0-9;.]{1,1000}")  # VALORANT crosshair code
 GALLERY_URL = "https://raw.githubusercontent.com/yensobased1/nullpoint/main/gallery/index.json"
 
 
@@ -60,6 +62,10 @@ def decode_qr(img):
         if m:
             import_code(m.group(0))  # validates; raises ShareCodeError
             return m.group(0)
+        t = re.sub(r"\s+", "", t)
+        if VAL_RE.fullmatch(t):
+            valorant.convert(t)  # validates
+            return t
     raise ShareCodeError(tr("No Nullpoint QR code found in that image.") if not texts
                          else tr("The QR code doesn't contain a Nullpoint share code."))
 
@@ -123,10 +129,13 @@ def code_from_link(text):
         return None
     raw = text[len(LINK_PREFIX):].strip().rstrip("/")
     code = raw if ";" in raw else unquote(raw)  # a fully %-encoded link has no bare ';'; never decode twice
-    if not CODE_RE.fullmatch(code):
-        return None
     try:
-        import_code(code)
+        if VAL_RE.fullmatch(code):
+            valorant.convert(code)
+        elif CODE_RE.fullmatch(code):
+            import_code(code)
+        else:
+            return None
     except ShareCodeError:
         return None
     return code

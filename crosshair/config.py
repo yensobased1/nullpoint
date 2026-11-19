@@ -83,6 +83,7 @@ DEFAULT_CONFIG = {
     "last_version": "",  # shows the changelog once after an update
     "ui_scale": 100,  # settings text scale: 100 / 125 / 150
     "large_text": False,
+    "valorant_scale": True,  # VALORANT codes: scale sizes by game height / 1080 to match in-game
 }
 
 

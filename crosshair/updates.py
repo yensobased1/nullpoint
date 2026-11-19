@@ -6,7 +6,7 @@ import urllib.request
 
 from PySide6.QtCore import QObject, Signal
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 REPO_RE = re.compile(r"[\w.-]+/[\w.-]+")
 
 

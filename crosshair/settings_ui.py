@@ -8,18 +8,19 @@ import sys
 import time
 import winreg
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
     QCompleter, QDialog, QDialogButtonBox, QFontComboBox, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton,
+    QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 import config
 import library
 import overlay
 import sharing
+import valorant
 from editor import EditorTab
 import tools
 import onboarding
@@ -688,6 +689,39 @@ class SettingsWindow(QWidget):
         hint.setObjectName("muted")
         f.addRow(hint)
 
+        g, f, reset = self.group(lay, "Import VALORANT code", [], "link",
+                                 "Paste a VALORANT crosshair code, e.g. from vcrdb.net (its Copy Code button).")
+        reset.hide()
+        self.val_edit = QPlainTextEdit()
+        self.val_edit.setPlaceholderText("0;P;c;5;h;0;0l;4;0o;2;0a;1;0f;0;1b;0")
+        self.val_edit.setFixedHeight(64)
+        self.val_edit.setAccessibleName(tr("Import VALORANT code"))
+        self.val_edit.textChanged.connect(self._val_preview)
+        f.addRow(self.val_edit)
+        self.val_cross = None
+        self.val_view = PixelView(lambda: self._val_image(), zoom=4, bg="Dark", size=160)
+        self.val_view.setFixedHeight(160)
+        self.val_note = QLabel()
+        self.val_note.setWordWrap(True)
+        row = QHBoxLayout()
+        row.addWidget(self.val_view, 1)
+        col = QVBoxLayout()
+        for text, fn in (("Paste from clipboard", lambda: self.val_edit.setPlainText(QGuiApplication.clipboard().text())),
+                         ("Apply", self._val_apply), ("Save to library", self._val_save),
+                         ("Browse VCRDB", lambda: QDesktopServices.openUrl(QUrl("https://www.vcrdb.net/")))):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            col.addWidget(b)
+        acc = QCheckBox(tr("VALORANT-accurate size"))
+        acc.setChecked(self.cfg["valorant_scale"])
+        acc.setToolTip(tr("VALORANT sizes its crosshair to the screen height. On: scale by height / 1080. Off: use the values as pixels."))
+        acc.toggled.connect(lambda v: (self._set_cfg("valorant_scale", v), self._val_preview()))
+        col.addWidget(acc)
+        col.addStretch()
+        row.addLayout(col)
+        f.addRow(row)
+        f.addRow(self.val_note)
+
         g, f, reset = self.group(lay, "Backup", [])
         reset.hide()
         f.addRow(QLabel(tr("One .json file with every profile, the library and all settings. "
@@ -898,6 +932,52 @@ class SettingsWindow(QWidget):
             library.save(self.lib_entries)
             self.load_library()
 
+    # ---------- VALORANT codes ----------
+    def val_scale(self):
+        h = self.app.native[1]
+        return h / 1080 if self.cfg["valorant_scale"] and h else 1.0
+
+    def _val_preview(self):
+        text = self.val_edit.toPlainText().strip()
+        self.val_cross = None
+        if not text:
+            self.val_note.setText("")
+        else:
+            try:
+                self.val_cross = valorant.convert(text, self.val_scale())
+                self.val_note.setText(tr("Converted from VALORANT") + f" ({tr('size scale')} {self.val_scale():.2f}x)")
+                self.val_note.setStyleSheet(f"color: {theme.tokens['ok']};")
+            except ShareCodeError as e:
+                self.val_note.setText(f"{tr('Invalid code')}: {e}")
+                self.val_note.setStyleSheet(f"color: {theme.tokens['danger']};")
+        self.val_view.update()
+
+    def _val_image(self):
+        if not self.val_cross:
+            return None
+        cr = self.val_cross
+        c = overlay.extent(cr)
+        return render_image(lambda p, cc: overlay.render(p, cr, cc), c), c
+
+    def _val_apply(self):
+        if not self.val_cross:
+            self.say(tr("Paste a VALORANT code first."), True)
+            return
+        self.record()
+        self.profile()["crosshair"] = copy.deepcopy(self.val_cross)
+        self.on_change("crosshair")
+        self.refresh()
+        self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}. {tr('Converted from VALORANT')}")
+
+    def _val_save(self):
+        if not self.val_cross:
+            self.say(tr("Paste a VALORANT code first."), True)
+            return
+        name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"), text="VALORANT")
+        if ok and name.strip():
+            library.add(name.strip(), copy.deepcopy(self.val_cross), tags=["valorant"])
+            self.say(tr("Added to library"))
+
     # ---------- share card / QR import / confirm ----------
     def _card(self):
         cross = self.target("cross")
@@ -947,10 +1027,12 @@ class SettingsWindow(QWidget):
     def confirm_import(self, code, source=""):
         """Preview + 'Import this crosshair?'. Nothing changes unless the user picks an action."""
         try:
-            cross = import_code(code)
+            cross, kind = valorant.import_any(code, self.val_scale())
         except ShareCodeError as e:
             self.say(f"{tr('Invalid code')}: {e}", True)
             return
+        if kind == "valorant":
+            source = (source + "  -  " if source else "") + tr("Converted from VALORANT")
         self.show()
         self.raise_()
         dlg = QDialog(self)
@@ -1392,7 +1474,7 @@ class SettingsWindow(QWidget):
 
     def _paste_code(self):
         try:
-            cross = import_code(QGuiApplication.clipboard().text())
+            cross, kind = valorant.import_any(QGuiApplication.clipboard().text(), self.val_scale())
         except ShareCodeError as e:
             self.say(f"{tr('Invalid code')}: {e}", True)
             return
@@ -1401,6 +1483,8 @@ class SettingsWindow(QWidget):
         self.on_change("crosshair")
         self.refresh()
         msg = f"{tr('Code applied to profile')}: {self.cfg['active_profile']}"
+        if kind == "valorant":
+            msg += ". " + tr("Converted from VALORANT")
         if cross["mode"] == "png":
             msg += ". " + tr("Image codes hold settings only - pick the image on the Image tab.")
         self.say(msg)
