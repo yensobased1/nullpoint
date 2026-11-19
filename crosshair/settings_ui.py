@@ -9,10 +9,10 @@ import time
 import winreg
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
-    QDialog, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
+    QDialog, QFontComboBox, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton,
     QScrollArea, QSlider, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
@@ -20,13 +20,20 @@ import config
 import library
 import overlay
 from editor import EditorTab
-from preview import PreviewPanel, render_image
+from preview import PixelView, PreviewPanel, render_image
 from share_code import FIELDS, ShareCodeError, export_code, import_code
 from ui import theme
+from ui.icons import icon
 from ui.i18n import LANGUAGES, tr
 
 SHAPES = [("cross", "Cross"), ("t", "T-Shape"), ("dot", "Dot only"), ("circle", "Circle"),
+          ("hexagon", "Hexagon"), ("triangle", "Triangle"), ("diamond", "Diamond"), ("plus", "Plus (thick +)"),
           ("square", "Square"), ("chevron", "Chevron (^)"), ("x", "X")]
+LINE_STYLES = [("solid", "Solid"), ("dashed", "Dashed"), ("dotted", "Dotted")]
+# Colorblind-friendly palettes: main color + outline color. Applying changes colors only.
+COLORBLIND = [("Protanopia", "00FFFF", "000000"), ("Deuteranopia", "FFFF00", "000000"),
+              ("Tritanopia", "FF4D8D", "000000"), ("High contrast", "FFFFFF", "000000")]
+MODES = ["lines", "png", "text"]
 PRESETS = ["FFFFFF", "00FF00", "7FFF00", "DFFF00", "FFFF00", "00FFFF", "FF00FF", "FF0000"]
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "Nullpoint"
@@ -118,7 +125,7 @@ class SettingsWindow(QWidget):
         self.profile_box = QComboBox()
         self.profile_box.currentTextChanged.connect(self._pick_profile)
         self.mode_box = QComboBox()
-        self.mode_box.addItems([tr("Line crosshair"), tr("Image")])
+        self.mode_box.addItems([tr("Line crosshair"), tr("Image"), tr("Text")])
         self.mode_box.currentIndexChanged.connect(self._pick_mode)
         top.addWidget(QLabel(tr("Profile")))
         top.addWidget(self.profile_box, 1)
@@ -287,6 +294,23 @@ class SettingsWindow(QWidget):
         form.addRow(tr(label), ed)
         return ed
 
+    def _set_color_mode(self, mode):
+        if self.loading:
+            return
+        self.record()
+        self.target("rainbow")["on"] = mode == "rainbow"
+        self.target("gradient")["on"] = mode == "gradient"
+        self.on_change("crosshair")
+        self.preview.update()
+
+    def _colorblind(self, main, outline):
+        self.record()
+        cross = self.target("cross")
+        cross["color"] = main
+        cross["colors"].update(lines=main, dot=main, ring=main, outline=outline)
+        self.on_change("crosshair")
+        self.refresh()
+
     def _split_colors(self, same):
         """Turning 'same color' off starts every part from the current main color."""
         if not same and not self.loading:
@@ -297,11 +321,18 @@ class SettingsWindow(QWidget):
             self.on_change("crosshair")
             self.refresh()
 
-    def group(self, layout, title, sections):
-        """Group box with a per-section 'Reset to default' button."""
+    def group(self, layout, title, sections, icon_name=None, hint=None):
+        """Group box with a per-section 'Reset to default' button (+ optional feature icon and hint line)."""
         g = QGroupBox(tr(title))
         form = QFormLayout(g)
         layout.addWidget(g)
+        if icon_name:
+            pic = QLabel()
+            pic.setPixmap(icon(icon_name).pixmap(18, 18))
+            note = QLabel(tr(hint) if hint else "")
+            note.setObjectName("muted")
+            note.setWordWrap(True)
+            form.addRow(pic, note)
 
         def reset():
             self.record()
@@ -326,14 +357,18 @@ class SettingsWindow(QWidget):
         grid = QGridLayout(page)
         lay, lay2 = QVBoxLayout(), QVBoxLayout()
         grid.addLayout(lay, 0, 0, Qt.AlignTop)
-        grid.addLayout(lay2, 0, 1, Qt.AlignTop)
+        grid.addLayout(lay2, 1, 0, Qt.AlignTop)  # one column: two don't fit next to the preview
 
-        g, f, reset = self.group(lay, "Shape", ["shape", "rot"])
+        g, f, reset = self.group(lay, "Shape", ["shape", "rot", "style"], "shapes",
+                                 "Shape presets and solid / dashed / dotted lines.")
         self.add_combo(f, "Shape", "cross", "shape", SHAPES)
         self.add_slider(f, "Line rotation", "cross", "rot", 0, 90)
+        self.add_combo(f, "Line style", "style", "kind", LINE_STYLES)
+        self.add_slider(f, "Dash length", "style", "dash", 1, 10)
+        self.add_slider(f, "Dash gap", "style", "gap", 1, 10)
         f.addRow(reset)
 
-        g, f, reset = self.group(lay, "Color", ["color", "colors", "rainbow"])
+        g, f, reset = self.group(lay, "Color", ["color", "colors", "rainbow", "gradient"])
         swatches = QHBoxLayout()
         for hexc in PRESETS:
             b = QPushButton()
@@ -357,15 +392,58 @@ class SettingsWindow(QWidget):
         same.toggled.connect(lambda on: [f.setRowVisible(w, not on) for w in part_rows])
         same.toggled.connect(self._split_colors)
         self.loaders.append(lambda: [f.setRowVisible(w, not self.target("colors")["same"]) for w in part_rows])
-        self.add_combo(f, "Color mode", "rainbow", "on", [(False, "Static"), (True, "Rainbow")])
+        mode = QComboBox()
+        for val, text in (("static", "Static"), ("gradient", "Gradient"), ("rainbow", "Rainbow")):
+            mode.addItem(icon("gradient") if val == "gradient" else QIcon(), tr(text), val)
+        mode.currentIndexChanged.connect(lambda i: self._set_color_mode(mode.itemData(i)))
+        self.loaders.append(lambda: mode.setCurrentIndex(
+            2 if self.target("rainbow")["on"] else 1 if self.target("gradient")["on"] else 0))
+        f.addRow(tr("Color mode"), mode)
+        self.add_hex(f, "Gradient tip color", "gradient", "c2")
         self.add_slider(f, "Rainbow speed", "rainbow", "speed")
         self.add_slider(f, "Rainbow saturation", "rainbow", "sat", dec=2)
+        cb = QGridLayout()
+        for i, (name, main, outline) in enumerate(COLORBLIND):
+            b = QPushButton(icon("colorblind"), tr(name))
+            b.setToolTip(tr("Sets colors only"))
+            b.clicked.connect(lambda _=False, m=main, o=outline: self._colorblind(m, o))
+            cb.addWidget(b, i // 2, i % 2)
+        f.addRow(tr("Colorblind presets"), cb)
         f.addRow(reset)
 
         g, f, reset = self.group(lay, "Outline", ["outline"])
         self.add_check(f, "Outline", "outline", "on")
         self.add_slider(f, "Outline thickness", "outline", "thick")
         self.add_slider(f, "Outline opacity", "outline", "alpha", dec=2)
+        f.addRow(reset)
+
+        g, f, reset = self.group(lay, "Shadow", ["shadow"], "shadow",
+                                 "Soft dark halo under the outline, for bright backgrounds.")
+        self.add_check(f, "Show shadow", "shadow", "on")
+        self.add_slider(f, "Shadow size", "shadow", "size")
+        self.add_slider(f, "Shadow opacity", "shadow", "alpha", dec=2)
+        f.addRow(reset)
+
+        g, f, reset = self.group(lay2, "Text crosshair", ["text"], "text_crosshair",
+                                 "Used when Mode is set to Text: 1-3 characters, e.g. + • × ◆")
+        chars = QLineEdit()
+        chars.setMaxLength(3)
+        chars.setAccessibleName(tr("Characters"))
+        chars.textEdited.connect(lambda t: self.set_value("text", "chars", t))
+        self.loaders.append(lambda: chars.setText(self.target("text")["chars"]))
+        f.addRow(tr("Characters"), chars)
+        font_row = QHBoxLayout()
+        font = QFontComboBox()
+        font.currentFontChanged.connect(lambda fo: self.set_value("text", "font", fo.family()))
+        self.loaders.append(lambda: font.setCurrentFont(QFont(self.target("text")["font"] or self.font().family())))
+        default_font = QPushButton(tr("Default"))
+        default_font.clicked.connect(lambda: (self.set_value("text", "font", ""), self.refresh()))
+        font_row.addWidget(font, 1)
+        font_row.addWidget(default_font)
+        f.addRow(tr("Font"), font_row)
+        self.add_slider(f, "Text size", "text", "size", 8, 96)
+        self.add_check(f, "Bold", "text", "bold")
+        self.add_slider(f, "Opacity", "text", "alpha", 0, 1, dec=2)
         f.addRow(reset)
 
         g, f, reset = self.group(lay2, "Center Dot", ["dot"])
@@ -526,7 +604,8 @@ class SettingsWindow(QWidget):
         lay.addWidget(self.lib_list, 1)
         row = QHBoxLayout()
         for text, fn in (("Save current to library", self._lib_save), ("Apply", self._lib_apply),
-                         ("Rename", self._lib_rename), ("Duplicate", self._lib_duplicate), ("Delete", self._lib_delete)):
+                         ("Rename", self._lib_rename), ("Duplicate", self._lib_duplicate), ("Delete", self._lib_delete),
+                         ("Compare...", self._compare)):
             b = QPushButton(tr(text))
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -557,6 +636,53 @@ class SettingsWindow(QWidget):
         self.lib_list.clear()
         for e in self.lib_entries:
             self.lib_list.addItem(QListWidgetItem(self.thumbnail(e["crosshair"], e["image"]), e["name"]))
+
+    def _compare(self):
+        """Side by side: the current crosshair vs a library item or a pasted share code. Shared zoom/background."""
+        entries = library.load()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Compare"))
+        dlg.setWindowIcon(icon("compare"))
+        v = QVBoxLayout(dlg)
+        row = QHBoxLayout()
+        pick = QComboBox()
+        for e in entries:
+            pick.addItem(e["name"])
+        pick.addItem(tr("Pasted share code"))
+        code = QLineEdit()
+        code.setPlaceholderText("XH3;...")
+        row.addWidget(QLabel(tr("Compare with")))
+        row.addWidget(pick, 1)
+        row.addWidget(code, 2)
+        v.addLayout(row)
+        sel = self.lib_list.currentRow()
+        pick.setCurrentIndex(sel if 0 <= sel < len(entries) else len(entries))
+
+        def other():
+            i = pick.currentIndex()
+            try:
+                cr, img = (entries[i]["crosshair"], entries[i]["image"]) if i < len(entries) \
+                    else (import_code(code.text()), "")
+            except ShareCodeError:
+                return None
+            pm = overlay.png_pixmap(img, cr["png"]) if cr["mode"] == "png" else None
+            c = overlay.extent(cr, pm)
+            return render_image(lambda p, cc: overlay.render(p, cr, cc, pm), c), c
+
+        mine = PreviewPanel(lambda: (render_image(self.ov.draw, self.ov.c), self.ov.c), tr)
+        theirs = PixelView(other)
+        mine.link(theirs)
+        pick.currentIndexChanged.connect(theirs.update)
+        code.textChanged.connect(theirs.update)
+        views = QHBoxLayout()
+        for title, w in ((tr("Current"), mine), (tr("Other"), theirs)):
+            col = QVBoxLayout()
+            col.addWidget(QLabel(title))
+            col.addWidget(w, 1, Qt.AlignTop)
+            views.addLayout(col)
+        v.addLayout(views)
+        dlg.resize(720, 460)
+        dlg.exec()
 
     def _lib_selected(self):
         row = self.lib_list.currentRow()
@@ -791,7 +917,7 @@ class SettingsWindow(QWidget):
         self.profile_box.addItems(sorted(self.cfg["profiles"], key=lambda n: (n != "Default", n.lower())))
         self.profile_box.setCurrentText(self.cfg["active_profile"])
         self.profile_box.blockSignals(False)
-        self.mode_box.setCurrentIndex(1 if self.target("cross")["mode"] == "png" else 0)
+        self.mode_box.setCurrentIndex(MODES.index(self.target("cross")["mode"]))
         for load in self.loaders:
             load()
         self.games_table.setRowCount(0)
@@ -813,7 +939,7 @@ class SettingsWindow(QWidget):
     def _pick_mode(self, idx):
         if not self.loading:
             self.record()
-            self.target("cross")["mode"] = "png" if idx else "lines"
+            self.target("cross")["mode"] = MODES[idx]
             self.on_change("crosshair")
             self.refresh()
 

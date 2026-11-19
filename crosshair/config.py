@@ -13,18 +13,22 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 # Every crosshair setting. Share codes encode exactly this dict (see share_code.py).
 DEFAULT_CROSSHAIR = {
-    "mode": "lines",  # "lines" or "png"
+    "mode": "lines",  # "lines", "png" or "text"
     "color": "00FFFF",
     "outline": {"on": True, "thick": 1, "alpha": 0.5},
     "dot": {"on": True, "size": 2, "alpha": 1.0},
     "inner": {"on": True, "len": 6, "thick": 2, "gap": 3, "alpha": 0.8, "vsep": False, "vlen": 6},
     "outer": {"on": False, "len": 2, "thick": 2, "gap": 10, "alpha": 0.35, "vsep": False, "vlen": 2},
     "png": {"scale": 100, "alpha": 1.0, "rot": 0},
-    "shape": "cross",  # cross / t / dot / circle / square / chevron / x
+    "shape": "cross",  # cross / t / dot / circle / square / chevron / x / hexagon / triangle / diamond / plus
     "rot": 0,  # line rotation 0-90 degrees
     "ring": {"on": False, "radius": 10, "thick": 1, "alpha": 1.0, "gaps": 0, "gapsize": 20, "gaprot": 0},
     "colors": {"same": True, "lines": "00FFFF", "dot": "00FFFF", "ring": "00FFFF", "outline": "000000"},
     "rainbow": {"on": False, "speed": 5, "sat": 1.0},
+    "shadow": {"on": False, "size": 2, "alpha": 0.5},  # soft dark halo under the outline
+    "gradient": {"on": False, "c2": "FFFFFF"},  # lines: main/lines color at the center -> c2 at the tips
+    "style": {"kind": "solid", "dash": 2, "gap": 1},  # solid / dashed / dotted
+    "text": {"chars": "+", "font": "", "size": 24, "bold": True, "alpha": 1.0},  # mode "text"
 }
 
 DEFAULT_PROFILE = {

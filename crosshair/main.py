@@ -222,8 +222,7 @@ class App:
         elif kind == "stream":
             self.apply_stream_safe()
         elif kind == "theme":
-            if self.settings:
-                self.settings.setStyleSheet(theme.use(self.cfg["theme"]))
+            self.set_language()  # rebuilds the settings window so icons re-tint for dark / light
         elif kind == "language":
             self.set_language()
         else:
@@ -335,8 +334,9 @@ class App:
 
     def open_settings(self):
         if self.settings is None:
+            qss = theme.use(self.cfg["theme"])  # tokens first: feature icons are tinted while the window builds
             self.settings = SettingsWindow(self)
-            self.settings.setStyleSheet(theme.use(self.cfg["theme"]))
+            self.settings.setStyleSheet(qss)
         self.settings.refresh()
         self.settings.show()
         self.settings.raise_()

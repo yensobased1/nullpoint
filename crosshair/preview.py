@@ -60,6 +60,7 @@ class PreviewPanel(QWidget):
     def __init__(self, source, tr=lambda s: s):
         super().__init__()
         self.view = PixelView(source)
+        self.linked = []  # other views that follow this panel's zoom / background / grid (compare mode)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.view, 1)
@@ -70,7 +71,7 @@ class PreviewPanel(QWidget):
         row.addWidget(QLabel(tr("Zoom")))
         self._buttons(row, [1, 2, 4, 8], "zoom", 2, tr)
         grid = QCheckBox(tr("Grid"))
-        grid.toggled.connect(lambda v: (setattr(self.view, "grid", v), self.view.update()))
+        grid.toggled.connect(lambda v: self._set("grid", v))
         row.addWidget(grid)
         lay.addLayout(row)
 
@@ -80,9 +81,19 @@ class PreviewPanel(QWidget):
             b = QPushButton(f"{v}x" if attr == "zoom" else tr(v))
             b.setCheckable(True)
             b.setChecked(v == current)
-            b.clicked.connect(lambda _=False, v=v: (setattr(self.view, attr, v), self.view.update()))
+            b.clicked.connect(lambda _=False, v=v: self._set(attr, v))
             group.addButton(b)
             row.addWidget(b)
+
+    def _set(self, attr, value):
+        for v in [self.view] + self.linked:
+            setattr(v, attr, value)
+            v.update()
+
+    def link(self, view):
+        for attr in ("zoom", "bg", "grid"):
+            setattr(view, attr, getattr(self.view, attr))
+        self.linked.append(view)
 
     def update(self):
         self.view.update()

@@ -99,6 +99,47 @@ class RenderTests(unittest.TestCase):
                 self.assertNotIn((0, 0), px)
                 self.assertIn((8, 0), px)
 
+    def test_dashed_lines(self):
+        cr = cross(inner__len=6, inner__thick=1, inner__gap=3, inner__vlen=0, inner__vsep=True)
+        cr["style"].update(kind="dashed", dash=2, gap=1)
+        self.check(cr, rect_set((4, 0, 2, 1), (7, 0, 2, 1), (-5, 0, 2, 1), (-8, 0, 2, 1)))
+
+    def test_plus_is_solid_through_center(self):
+        cr = cross(inner__len=2, inner__thick=1, inner__gap=1)
+        cr["shape"] = "plus"
+        self.check(cr, rect_set((-3, 0, 7, 1), (0, -3, 1, 7)))
+
+    def test_shadow_sits_outside_outline_and_never_on_fill(self):
+        cr = cross(inner__len=4, inner__thick=2, inner__gap=3, outline__on=True, outline__thick=1,
+                   outline__alpha=1.0)
+        cr["shadow"].update(on=True, size=2, alpha=1.0)
+        img, c = draw(cr)
+        fill = rect_set((3, -1, 4, 2), (-7, -1, 4, 2), (-1, 3, 2, 4), (-1, -7, 2, 4))
+        self.assertEqual(pixels(img, c, is_fill), fill)
+        dark = pixels(img, c, is_outline)
+        self.assertIn((8, 0), dark)  # 1 px outline + 1 px shadow to the right of the right arm (ends at +6)
+        self.assertIn((9, 0), dark)
+        self.assertNotIn((10, 0), dark)
+
+    def test_text_is_centered(self):
+        cr = cross()
+        cr["mode"] = "text"
+        cr["text"].update(chars="+", size=30)
+        img, c = draw(cr)
+        px = pixels(img, c, is_fill)
+        xs, ys = [x for x, _ in px], [y for _, y in px]
+        self.assertLessEqual(abs((min(xs) + max(xs)) / 2), 1)
+        self.assertLessEqual(abs((min(ys) + max(ys)) / 2), 1)
+
+    def test_new_polygon_shapes_draw(self):
+        for shape in ("hexagon", "triangle", "diamond"):
+            cr = cross(inner__len=6, inner__thick=2, inner__gap=2)
+            cr["shape"] = shape
+            img, c = draw(cr)
+            px = pixels(img, c, is_fill)
+            self.assertGreater(len(px), 20, shape)
+            self.assertNotIn((0, 0), px, shape)
+
     def test_dot_sizes_and_opacity(self):
         for size, rect in ((1, (0, 0, 1, 1)), (2, (-1, -1, 2, 2)), (3, (-1, -1, 3, 3))):
             cr = cross(inner__on=False, dot__on=True, dot__size=size, dot__alpha=0.5)
