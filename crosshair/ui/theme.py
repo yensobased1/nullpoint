@@ -46,8 +46,14 @@ QTabBar::tab:selected {{ background: {accent}; color: {accent_text}; }}
 QPushButton {{ background: {panel}; border: 1px solid {border}; border-radius: {radius}; padding: 5px 10px; }}
 QPushButton:hover {{ border-color: {accent}; }}
 QPushButton:pressed {{ background: {accent}; color: {accent_text}; }}
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit, QListWidget, QTableWidget {{
-    background: {input}; border: 1px solid {border}; border-radius: {radius}; padding: 3px; }}
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit, QListWidget, QTableWidget,
+QTextBrowser, QTextEdit, QPlainTextEdit {{
+    background: {input}; border: 1px solid {border}; border-radius: {radius}; padding: 3px;
+    selection-background-color: {accent}; selection-color: {accent_text}; }}
+/* themed everywhere, so the Windows accent color (e.g. purple) never shows */
+QToolButton {{ background: {panel}; border: 1px solid {border}; border-radius: {radius}; padding: 4px; }}
+QToolButton:hover {{ border-color: {accent}; }}
+QToolButton:checked, QToolButton:pressed {{ background: {accent}; color: {accent_text}; }}
 QComboBox QAbstractItemView {{ background: {input}; selection-background-color: {accent}; }}
 QHeaderView::section {{ background: {panel}; border: 0; border-bottom: 1px solid {border}; padding: 4px; }}
 QListWidget::item:selected, QTableWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
@@ -66,7 +72,8 @@ QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QAbstractSpinBox#num::up-button, QAbstractSpinBox#num::down-button {{ width: 0px; border: 0px; }}
 /* keyboard focus rings */
 QPushButton:focus, QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus, QKeySequenceEdit:focus,
-QListWidget:focus, QTableWidget:focus, QTabBar::tab:focus {{ border: 2px solid {accent}; }}
+QListWidget:focus, QTableWidget:focus, QTabBar::tab:focus, QTextBrowser:focus, QTextEdit:focus,
+QPlainTextEdit:focus, QToolButton:focus {{ border: 2px solid {accent}; }}
 QCheckBox:focus {{ text-decoration: underline; }}
 QSlider:focus QSlider::handle:horizontal, QSlider::handle:horizontal:focus {{ border: 2px solid {muted}; }}
 QScrollArea {{ border: 0; }}
