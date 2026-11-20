@@ -44,7 +44,7 @@ JavaScript on every push.
 | Gallery fetch | `urlopen` with a fixed URL | All HTTP goes through `net.get`: HTTPS only, cert check, host allow-list (github.com, api.github.com, raw/objects.githubusercontent.com), redirects re-checked, 8 s timeout, size limit (1 MB). Entries validated, max 500, names shown as plain text | Low, fixed |
 | Stream page | Old page had no token and no Host check | 127.0.0.1 only, random token in the URL, Host header must be 127.0.0.1 / localhost (DNS rebinding), GET only, no CORS, CSP + nosniff, off by default | Medium, fixed in phase 5 |
 | Twitch IRC | New in 2.2 | TLS with cert check, token in Windows Credential Manager only, line length limits, exact command only, never echoes chat, cooldown | OK |
-| Updater | Phase 9 (download + SHA-256 + confirm) | Uses `net.get`; see release notes | Pending phase 9 |
+| Updater | New in 2.2 | Only after your click: HTTPS GitHub hosts only (`release-assets.githubusercontent.com` added: GitHub's release download host), installer link must be this repo's release, 150 MB limit, fresh private temp folder, SHA-256 checked against the release's `checksums.txt`, file locked against changes and hashed again before it runs, never a downgrade; Authenticode check ready (`REQUIRE_SIGNATURE`) | OK, tested |
 | Crash reporter | OK | Local only, user names and home folders scrubbed, no config content | OK |
 | Config / library loading | A damaged library used to load as empty (then saved over) | Max 5 MB, schema-normalized, auto-restore from the last 10 backups, broken file kept as `.corrupt`, atomic writes | Fixed in phase 6 |
 | Registry writes | OK | HKCU only (Run key, `nullpoint://` handler) | OK |
@@ -58,7 +58,6 @@ JavaScript on every push.
 | Item | Severity | Note |
 |---|---|---|
 | Code signing (Authenticode) | Medium | Needs a signing account (phase 9 adds the build step; you set up the account). Until then the updater relies on SHA-256 from the GitHub release |
-| `SetDefaultDllDirectories` in the frozen exe | Low | Checked when the 2.2 exe is built (phase 9) |
 | Twitch token readable by other programs running as you | Low | Inherent to Credential Manager; the token can only read / write your chat |
 | Stream page token is stored in config.json | Low | It only unlocks a read-only page on 127.0.0.1; "New link" replaces it |
 | Gallery content integrity | Low | Trusts GitHub over HTTPS; every entry is validated and shown as text |

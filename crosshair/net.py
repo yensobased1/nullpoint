@@ -7,7 +7,9 @@ import ssl
 import urllib.request
 from urllib.parse import urlsplit
 
-ALLOWED_HOSTS = {"github.com", "api.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"}
+# release-assets.githubusercontent.com: where github.com/<repo>/releases/download/... redirects to (2025+).
+ALLOWED_HOSTS = {"github.com", "api.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
+                 "release-assets.githubusercontent.com"}
 TIMEOUT = 8  # seconds
 
 

@@ -1,5 +1,60 @@
 # Changelog
 
+## v2.2.0
+**Crosshair**
+- Per-arm lengths and colors ("Link all arms" off), round / diamond center dots, a colored **glow**, **fire expand**
+  (lines open while you hold left mouse in a game, visual only), **Reduce motion**, and **SVG export**.
+- Share codes are now **XH4**; XH1-XH3 codes still load.
+
+**Editor**
+- Line, rectangle and circle tools (outline or filled), mirror with every tool, up to 8 **layers**, **animation
+  frames** with onion skin and play preview, animated **GIF export**, **import any image** as pixels (threshold /
+  invert / keep colors), and **recolor** with tolerance.
+
+**Games and display**
+- **Game profiles are gone**: games are still detected and the crosshair is centered on their window, but they use
+  the profile you pick. Make, rename and delete your own profiles next to the profile box; a game can still get a
+  profile and an **offset** of its own. Old built-in game profiles that differed from Default are saved to your
+  library as "(old profile)".
+- **Profile rules** by program and / or window title (contains / exact / regex), **detect installed games** (Epic,
+  Riot, Battle.net), **resolution variants**, arrow-key **nudge** (also an in-game nudge hotkey), **HDR
+  compensation**, **startup delay**, and a **sensitivity converter** (CS2, Apex, VALORANT, Overwatch 2, cm/360).
+
+**Library and sharing**
+- Duplicate check, **import a folder of PNGs**, **recent crosshairs** in the tray, **drag and drop** (`.nullpoint`
+  files, images, text), **.nullpoint** single-file export, **VALORANT code export** and **CS2 console commands**,
+  animated share cards for GIF crosshairs, **Copy for Discord**, opt-in **clipboard watch**, and 6 **starter packs**.
+
+**Community**
+- Gallery search, tag filters, sort and grid; **Submit to gallery** (prefilled GitHub issue).
+- OBS page themes, positions, size and toggles. **Twitch `!crosshair`** (opt-in; token in Windows Credential Manager).
+- **Web builder**: https://yensobased1.github.io/nullpoint/builder/ (same codes and pixels as the app).
+
+**Reliability and UI**
+- Tooltips show a before / after preview of each setting. **Safe mode** (hold Shift while starting, or `--safe`).
+  Rotating **backups** (last 10) and **auto-repair** of a damaged config or library.
+
+**Languages**
+- New: Deutsch, Русский, Polski, Italiano, 日本語, 한국어, 简体中文 (machine-translated; fixes welcome, see
+  docs/TRANSLATING.md). Japanese / Korean / Chinese use the matching Windows UI fonts.
+
+**Updates and distribution**
+- **In-app updater**: shows what's new, and only on your click downloads the installer from the GitHub release,
+  checks its SHA-256 against the release's `checksums.txt`, and runs it. Optional **beta channel**.
+- Signing step (Azure Trusted Signing) in `build.bat`, Scoop and Chocolatey packages, MSIX setup (docs/SIGNING.md,
+  docs/STORE.md).
+
+**Security**
+- Full audit: docs/SECURITY_AUDIT.md. pip-audit and bandit clean; the git history was scanned for secrets (none).
+- Dependencies pinned with hashes and installed with `--require-hashes`.
+- All network access goes through one checked path: HTTPS, GitHub hosts only (redirects too), timeouts, size limits.
+- Every image load is size-checked (and Pillow's bomb guard is on); network (UNC) paths aren't opened automatically.
+- SVGs with scripts or external references are refused. Backup imports can't write outside Nullpoint's folder or
+  change the update source. `nullpoint://` links can't set command-line flags. Only your own Windows user can talk
+  to the running app. The current folder is no longer in the DLL search path.
+- OBS page: random private link, Host check against DNS rebinding, GET only, no CORS.
+- Fuzz tests for every parser. `SECURITY.md` with private reporting, Dependabot and CodeQL on GitHub.
+
 ## v2.1.3
 - **Import CS2 / CS:GO crosshair codes** (`CSGO-xxxxx-...`) in the same box as VALORANT codes, plus Paste Code,
   `nullpoint://` links and QR images. Sized like the game draws it at your screen height.

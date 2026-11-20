@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>nullpoint</id>
+    <version>2.2.0</version>
+    <title>Nullpoint</title>
+    <authors>yensobased1</authors>
+    <owners>yensobased1</owners>
+    <projectUrl>https://github.com/yensobased1/nullpoint</projectUrl>
+    <licenseUrl>https://github.com/yensobased1/nullpoint/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/yensobased1/nullpoint</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/yensobased1/nullpoint/issues</bugTrackerUrl>
+    <releaseNotes>https://github.com/yensobased1/nullpoint/releases</releaseNotes>
+    <tags>crosshair overlay gaming fps valorant cs2 portable</tags>
+    <summary>Simple, clean crosshair overlay for Windows.</summary>
+    <description>A click-through, always-on-top crosshair window. No game injection, no DirectX hooks, no game memory
+or pixel reading. Share codes, VALORANT / CS2 code import, per-game centering, pixel editor.
+
+This package installs the portable Nullpoint.exe (settings in %APPDATA%\Nullpoint).</description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

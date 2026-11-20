@@ -1,16 +1,9 @@
 # Next steps
 
-## v2.2 progress (2026-11-20)
-Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools), phase 4 (library and sharing),
-phase 5 (community), phase 6 (reliability and UI), phase 7 (languages), phase 8 (security audit), plus: built-in game profiles removed (games keep centering; optional profile + offset
-per game). 131 tests pass (incl. fuzz tests) (incl. the web builder's JS check with Node).
-Nothing is pushed or released yet: v2.2 work lives in local commits on `main`.
+## v2.2.0 (released 2026-11-20)
+All 9 phases are done and released. 135 tests pass (incl. fuzz tests and the web builder's JS check).
 
-Left to do, in order (spec: "Feature Pack v2.2"):
-- Phase 9: in-app updater with SHA-256 check (#96), beta channel (#97), signing step + docs/SIGNING.md (#98),
-  Scoop + Chocolatey (#99), MSIX + docs/STORE.md (#100), release v2.2.0.
-
-Notes from phases 1-8:
+Notes:
 - Security audit: docs/SECURITY_AUDIT.md. Private vulnerability reporting is enabled on GitHub.
 - Dependencies are pinned with hashes: after changing requirements.in, run
   `.venv\Scripts\pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in`.
@@ -39,6 +32,19 @@ Notes from phases 1-8:
 - "Start with Windows" entries are rewritten on launch to add `--autostart` (needed for the startup delay).
 
 ## Manual steps for you
+
+### Code signing (Azure Trusted Signing)
+Follow docs/SIGNING.md (account, identity validation, certificate profile, `NULLPOINT_SIGN_DLIB` /
+`NULLPOINT_SIGN_METADATA`). `build.bat` then signs automatically. After the first signed release, set
+`REQUIRE_SIGNATURE = True` in crosshair/updates.py for the next one.
+
+### Scoop / Chocolatey / Microsoft Store
+Files and exact steps: docs/STORE.md. Nothing was submitted. `python packaging\update_manifests.py <version>`
+refreshes the hashes after each build. Not validated locally: scoop, choco and the Windows SDK (makeappx) aren't
+installed on this PC.
+
+### winget 2.2.0
+Same steps as below with the `2.2.0` folder (validated with `winget validate`).
 
 ### GitHub Pages for the web builder (after the v2.2 push)
 1. Push `main` (the release step does this).

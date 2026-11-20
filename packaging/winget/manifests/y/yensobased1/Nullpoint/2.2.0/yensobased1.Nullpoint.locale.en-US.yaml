@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: yensobased1.Nullpoint
+PackageVersion: 2.2.0
+PackageLocale: en-US
+Publisher: yensobased1
+PublisherUrl: https://github.com/yensobased1
+PublisherSupportUrl: https://github.com/yensobased1/nullpoint/issues
+PackageName: Nullpoint
+PackageUrl: https://github.com/yensobased1/nullpoint
+License: MIT
+LicenseUrl: https://github.com/yensobased1/nullpoint/blob/main/LICENSE
+ShortDescription: Simple, clean crosshair overlay for Windows
+Description: A click-through crosshair overlay with per-game profiles, share codes, a pixel editor and a community gallery. It is a separate window and never injects into games or reads game memory.
+Moniker: nullpoint
+Tags:
+- crosshair
+- overlay
+- gaming
+- fps
+- valorant
+- fortnite
+ReleaseNotesUrl: https://github.com/yensobased1/nullpoint/releases/tag/v2.2.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

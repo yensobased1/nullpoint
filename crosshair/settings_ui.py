@@ -2000,7 +2000,12 @@ class SettingsWindow(QWidget):
         repo.setPlaceholderText("owner/repo")
         repo.editingFinished.connect(lambda: self._set_cfg("update_repo", repo.text().strip()))
         f.addRow(tr("Update check (GitHub repo)"), repo)
-        f.addRow(QLabel(tr("Empty = off. Checks at most once a day and only shows a notification.")))
+        f.addRow(QLabel(tr("Empty = off. Checks at most once a day. Installs only when you click Download and install: "
+                           "the installer's SHA-256 is checked against the release first.")))
+        beta = QCheckBox(tr("Beta channel (also offer pre-releases)"))
+        beta.setChecked(self.cfg["beta_updates"])
+        beta.toggled.connect(lambda v: self._set_cfg("beta_updates", v))
+        f.addRow(beta)
         b = QPushButton(tr("Alignment test"))
         b.clicked.connect(self.app.alignment_test)
         f.addRow(b)

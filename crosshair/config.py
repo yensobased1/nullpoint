@@ -97,6 +97,7 @@ DEFAULT_CONFIG = {
     "language": "en",  # en / ar
     "update_repo": DEFAULT_UPDATE_REPO,  # "owner/repo" on GitHub, empty = no update check
     "last_update_check": 0,
+    "beta_updates": False,  # also offer GitHub pre-releases
     "register_links": True,  # handle nullpoint://import/<code> links (per-user registry, no admin)
     # Local page for OBS browser sources: 127.0.0.1 only, URL needs the random token (made on first use).
     "stream_page": {"on": False, "port": 7373, "token": "", "theme": "dark", "pos": "top-left", "size": 96,  # nosec B105 - token "" = make one on load
@@ -371,7 +372,9 @@ def drop_builtin_profiles(cfg, keep=False):
                         "tags": ["profile"], "fav": False})
     if keep and old:
         import library  # here, not at the top: library imports config
-        library.save(library.load() + old)
+        entries = library.load()
+        names = {e["name"] for e in entries}  # migration can run twice if the app quits before saving: no duplicates
+        library.save(entries + [e for e in old if e["name"] not in names])
     if cfg["active_profile"] not in cfg["profiles"]:
         cfg["active_profile"] = "Default"
     cfg["rules"] = clean_rules(cfg["rules"], cfg["profiles"])

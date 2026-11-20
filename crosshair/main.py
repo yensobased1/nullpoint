@@ -37,7 +37,7 @@ from twitch import TwitchBot
 from settings_ui import SettingsWindow, app_icon, asset, migrate_startup, screens, startup_command
 from ui import i18n, theme
 from ui.i18n import tr
-from updates import VERSION, UpdateChecker
+from updates import VERSION, Downloader, UpdateChecker, run_verified
 
 user32 = ctypes.windll.user32
 user32.RegisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_uint, ctypes.c_uint]
@@ -161,7 +161,7 @@ class App:
         if self.cfg["update_repo"] and time.time() - self.cfg["last_update_check"] > 86400:  # max once a day
             self.cfg["last_update_check"] = int(time.time())
             self.save_timer.start()
-            self.updates.check(self.cfg["update_repo"])
+            self.updates.check(self.cfg["update_repo"], self.cfg["beta_updates"])
         self.register_hotkeys()
         self.low_power = False
         self.power_check = 0
@@ -527,10 +527,59 @@ class App:
                 self.settings.move(pos)
                 self.settings.tabs.setCurrentIndex(tab)
 
-    def on_update(self, version, url):
-        self.update_url = url
-        self.notify(f"{tr('A new version is available')}: {version}. {tr('Click to open the release page.')}",
-                    action=lambda: QDesktopServices.openUrl(QUrl(url)))
+    def on_update(self, info):
+        self.update_url = info["url"]
+        self.notify(f"{tr('A new version is available')}: {info['version']}. {tr('Click to see what is new.')}",
+                    action=lambda: self.show_update(info))
+
+    def show_update(self, info):
+        """What's new + 'Download and install' (never installs without this click)."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPlainTextEdit, QVBoxLayout
+        dlg = QDialog()
+        dlg.setWindowTitle(f"Nullpoint {info['version']}")
+        dlg.setWindowIcon(app_icon())
+        dlg.setStyleSheet(self.qss())
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(f"{tr('A new version is available')}: {info['version']}  ({tr('you have')} {VERSION})"))
+        notes = QPlainTextEdit(info["notes"])  # release notes from GitHub: plain text, never rendered as HTML
+        notes.setReadOnly(True)
+        v.addWidget(notes, 1)
+        bb = QDialogButtonBox()
+        install = bb.addButton(tr("Download and install"), QDialogButtonBox.AcceptRole)
+        install.setEnabled(bool(info["installer"]))
+        page = bb.addButton(tr("Open release page"), QDialogButtonBox.ActionRole)
+        bb.addButton(tr("Later"), QDialogButtonBox.RejectRole)
+        clicked = {}
+        bb.clicked.connect(lambda b: (clicked.setdefault("b", b), dlg.accept()))
+        v.addWidget(bb)
+        dlg.resize(560, 420)
+        dlg.exec()
+        if clicked.get("b") is page:
+            QDesktopServices.openUrl(QUrl(info["url"]))
+        elif clicked.get("b") is install:
+            self.download_update(info)
+
+    def download_update(self, info):
+        from PySide6.QtWidgets import QMessageBox, QProgressDialog
+        busy = QProgressDialog(tr("Downloading and checking the installer..."), None, 0, 0)
+        busy.setWindowTitle("Nullpoint")
+        busy.setMinimumDuration(0)
+        busy.show()
+        self.downloader = Downloader()
+
+        def finished(path, sha, error):
+            busy.close()
+            if not error:
+                try:
+                    run_verified(path, sha)
+                    self.exit()  # the installer replaces this copy
+                    return
+                except (OSError, ValueError) as e:
+                    error = str(e)
+            QMessageBox.warning(None, "Nullpoint", f"{tr('Update failed')}: {tr(error)}")
+
+        self.downloader.done.connect(finished)
+        self.downloader.start(info)
 
     def alignment_test(self):
         if self.align:
@@ -767,7 +816,46 @@ def harden_dll_search():
         pass  # nosec B110 - very old Windows without the API: keep the default order
 
 
+def selftest():
+    """Nullpoint.exe --selftest: load every lazily imported part (QR, GIF, SVG, rendering) inside the built exe.
+    Exit code 0 = fine. The result goes to %TEMP%\\nullpoint-selftest.txt (the exe has no console)."""
+    import tempfile
+    import traceback
+    def check(ok, what):
+        if not ok:
+            raise RuntimeError(f"self-test failed: {what}")
+
+    out = os.path.join(tempfile.gettempdir(), "nullpoint-selftest.txt")
+    try:
+        app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841
+        from editor import write_gif
+        from PySide6.QtGui import QImage
+        import safe_image
+        code = export_code(config.DEFAULT_CROSSHAIR)
+        check(sharing.decode_qr(sharing.qr_image(code)) == code, "QR round trip")
+        from preview import render_image
+        import overlay
+        img = render_image(lambda p, c: overlay.render(p, config.DEFAULT_CROSSHAIR, c), 16)
+        check(not img.isNull(), "check")
+        gif = os.path.join(tempfile.gettempdir(), "nullpoint-selftest.gif")
+        write_gif(gif, [img, img], [100, 100])
+        check(not safe_image.load(gif).isNull(), "GIF")
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="4" height="4"/></svg>'
+        check(not safe_image.load_bytes(svg).isNull(), "SVG")
+        check(isinstance(QImage(4, 4, QImage.Format_ARGB32), QImage), "check")
+        os.remove(gif)
+        result, code_ = f"ok {VERSION}", 0
+    except Exception:
+        result, code_ = traceback.format_exc(), 1
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(result)
+    return code_
+
+
 def main():
+    if "--selftest" in sys.argv:
+        harden_dll_search()
+        sys.exit(selftest())
     onboarding.install_crash_hook(VERSION)  # local crash reports, never uploaded
     # Own taskbar identity, so Windows shows the Nullpoint icon instead of python.exe's.
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nullpoint.Overlay")

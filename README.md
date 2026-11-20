@@ -8,8 +8,8 @@
   rotation, 11 shapes (incl. Hexagon, Triangle, Diamond, thick Plus), static / gradient / rainbow color, colorblind presets
 - **Text crosshairs**: any 1-3 characters (+ • × ◆) in any font
 - **Image crosshairs**: PNG, animated GIF and SVG, with scale/opacity/rotation
-- **Pixel editor**: draw your own crosshair on a 16/32/64 grid and save it as PNG
-- **Per-game profiles**: auto-switches when you focus Fortnite, VALORANT, CS2, Apex, Overwatch 2, Roblox, Minecraft, Warzone, or any game you add
+- **Pixel editor**: 16/32/64 grid, shape tools, mirror, layers, animation frames with onion skin; save as PNG or animated GIF
+- **Games**: detected automatically (crosshair centered on the game window, shown only in games if you like); your own named profiles, optional per-game profile / offset, title rules, resolution variants
 - **True centering**: centers on the game window (windowed / borderless / stretched / multi-monitor) with X/Y fine-tune
 - **Share codes**: copy/paste a short code, QR, share card PNG, `nullpoint://import/...` links, import from a QR screenshot
 - **Import VALORANT and CS2 / CS:GO codes** (e.g. from [vcrdb.net](https://www.vcrdb.net/), or `CSGO-...` share codes):
@@ -22,6 +22,8 @@
 - **Tools**: eDPI calculator, resource monitor, low-power mode on battery, portable mode (USB stick)
 - **Extras**: OBS stream page, optional Discord Rich Presence, alignment test, black & white dark/light theme,
   first-run wizard, undo/redo, crash reports that stay on your PC
+- **Updates**: in-app updater (asks first, checks the installer's SHA-256), optional beta channel
+- **Web builder**: design a crosshair in the browser ([yensobased1.github.io/nullpoint/builder](https://yensobased1.github.io/nullpoint/builder/))
 - **Languages**: English, العربية, Deutsch, Español, Français, Italiano, Polski, Português (Brasil), Русский, Türkçe, 日本語, 한국어, 简体中文
 
 ## Safety
@@ -30,6 +32,8 @@ Nullpoint is a **separate click-through window**. It does **not** inject into ga
 Use any third-party overlay at your own discretion, especially in ranked modes.
 
 > **Note:** Overlays can't draw over *exclusive* fullscreen. Set your game to **Windowed Fullscreen / Borderless**.
+
+Security: see [SECURITY.md](SECURITY.md) and [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
 
 ## Install
 
