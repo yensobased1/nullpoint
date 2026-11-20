@@ -94,7 +94,11 @@ DEFAULT_CONFIG = {
     "update_repo": DEFAULT_UPDATE_REPO,  # "owner/repo" on GitHub, empty = no update check
     "last_update_check": 0,
     "register_links": True,  # handle nullpoint://import/<code> links (per-user registry, no admin)
-    "stream_page": {"on": False, "port": 7373},  # local page for OBS browser sources, 127.0.0.1 only
+    # Local page for OBS browser sources: 127.0.0.1 only, URL needs the random token (made on first use).
+    "stream_page": {"on": False, "port": 7373, "token": "", "theme": "dark", "pos": "top-left", "size": 96,
+                    "code": True, "qr": False, "name": True},
+    # Twitch !crosshair (opt-in). The token is in Windows Credential Manager, never here.
+    "twitch": {"on": False, "channel": "", "cooldown": 30},
     "discord_rpc": False,
     "discord_client_id": "",
     "low_power": "Auto",  # Auto (on battery) / On / Off: slower polling, animations paused
@@ -172,6 +176,18 @@ def fix_profiles(cfg):
             if x or y:
                 cfg["game_offsets"][str(k).lower()[:100]] = [x, y]
     cfg["rules"] = clean_rules(cfg.get("rules"), cfg["profiles"])
+    sp = cfg["stream_page"]
+    if not re.fullmatch(r"[A-Za-z0-9_\-]{22,64}", str(sp["token"])):
+        import secrets
+        sp["token"] = secrets.token_urlsafe(24)
+    from stream_server import POSITIONS, THEMES
+    sp["theme"] = sp["theme"] if sp["theme"] in THEMES else "dark"
+    sp["pos"] = sp["pos"] if sp["pos"] in POSITIONS else "top-left"
+    sp["size"] = min(max(int(sp["size"]), 32), 256)
+    sp["port"] = min(max(int(sp["port"]), 1024), 65535)
+    tw = cfg["twitch"]
+    tw["channel"] = tw["channel"].strip().lower()[:25] if re.fullmatch(r"\s*[A-Za-z0-9_]{0,25}\s*", tw["channel"]) else ""
+    tw["cooldown"] = min(max(int(tw["cooldown"]), 5), 600)
     rec = cfg["recent"] if isinstance(cfg["recent"], list) else []
     cfg["recent"] = [{"name": str(r.get("name", ""))[:60], "code": str(r.get("code", ""))[:2048],
                       "image": str(r.get("image", ""))[:400]} for r in rec if isinstance(r, dict)][:5]

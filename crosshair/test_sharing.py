@@ -38,14 +38,34 @@ class SharingTests(unittest.TestCase):
                          "Crosshair")
 
     def test_stream_page_is_local_and_serves_state(self):
+        import urllib.error
+        token = "t" * 32
         s = StreamServer()
-        s.start(0)
+        s.start(0, token)
         port = s.httpd.server_address[1]
+        base = f"http://127.0.0.1:{port}"
+
+        def status(path, host=None, method="GET"):
+            req = urllib.request.Request(base + path, method=method, headers={"Host": host} if host else {})
+            try:
+                with urllib.request.urlopen(req, timeout=3) as r:
+                    return r.status, r.read(), r.headers
+            except urllib.error.HTTPError as e:
+                return e.code, b"", e.headers
+
         try:
             self.assertEqual(s.httpd.server_address[0], "127.0.0.1")
-            s.publish(CODE, b"png")
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/state.json", timeout=3) as r:
-                self.assertEqual(json.load(r)["code"], CODE)
+            s.publish(CODE, b"png", "<b>me</b>")
+            code, body, headers = status(f"/{token}/state.json")
+            self.assertEqual((code, json.loads(body)["code"]), (200, CODE))
+            self.assertIsNone(headers.get("Access-Control-Allow-Origin"))  # no CORS
+            self.assertIn("nosniff", headers.get("X-Content-Type-Options"))
+            self.assertEqual(status("/state.json")[0], 404)  # no token
+            self.assertEqual(status(f"/{'x' * 32}/state.json")[0], 404)  # wrong token
+            self.assertEqual(status(f"/{token}/state.json", host=f"evil.example:{port}")[0], 403)  # DNS rebinding
+            self.assertEqual(status(f"/{token}/state.json", method="POST")[0], 501)  # GET only
+            self.assertEqual(status(f"/{token}/qr.png")[0], 404)  # QR is off
+            self.assertNotIn(b"<b>me</b>", status(f"/{token}/")[1])
         finally:
             s.stop()
 

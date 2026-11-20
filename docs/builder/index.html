@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Nullpoint Builder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>NULLPOINT <span>crosshair builder</span></h1>
+  <p>Design a crosshair, then copy its code into Nullpoint (<b>Share &gt; Paste Code</b>) or open the import link.
+     Everything runs in this page; nothing is sent anywhere.</p>
+</header>
+<main>
+  <section class="preview">
+    <canvas id="view" width="330" height="330" aria-label="Crosshair preview, zoomed"></canvas>
+    <canvas id="real" width="66" height="66" aria-label="Crosshair preview, real size"></canvas>
+    <label class="field">Share code <textarea id="code" rows="5" readonly></textarea></label>
+    <div class="row">
+      <button id="copy" type="button">Copy code</button>
+      <a id="link" href="#">Open in Nullpoint</a>
+      <span id="status" role="status"></span>
+    </div>
+    <p class="muted">Rings, rotation, text and image crosshairs need the app.
+      <a href="https://github.com/yensobased1/nullpoint">Get Nullpoint</a></p>
+  </section>
+  <form id="controls" autocomplete="off"></form>
+</main>
+<script src="nullpoint.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

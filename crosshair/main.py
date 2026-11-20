@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import copy
 
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QTimer, Qt, QUrl
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QObject, QPoint, QTimer, Qt, QUrl, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -32,6 +32,8 @@ from presence import Presence
 from stream_server import StreamServer
 from share_code import export_code, import_code
 import valorant
+import credman
+from twitch import TwitchBot
 from settings_ui import SettingsWindow, app_icon, asset, migrate_startup, screens, startup_command
 from ui import i18n, theme
 from ui.i18n import tr
@@ -67,6 +69,11 @@ def tray_icon():
         p.fillRect(x, y, w, h, QColor("#00FFFF"))
     p.end()
     return QIcon(pm)
+
+
+class Relay(QObject):
+    """Carries text from background threads (Twitch) to the UI thread."""
+    text = Signal(str)
 
 
 class App:
@@ -125,6 +132,10 @@ class App:
         self.tray.show()
 
         self.stream = StreamServer()
+        self.relay = Relay()
+        self.relay.text.connect(self.on_twitch_status)
+        self.twitch = TwitchBot(self.relay.text.emit)
+        self.twitch_text = ""
         self.presence = Presence()
         self.ipc = QLocalServer()
         QLocalServer.removeServer(IPC_NAME)  # stale socket from a crash
@@ -275,8 +286,14 @@ class App:
             self.hdr_mult = m
             self.apply()
 
+    def on_twitch_status(self, text):
+        self.twitch_text = text
+        if self.settings:
+            self.settings.say(tr(text), "fail" in text or "invalid" in text)
+
     def apply(self):
         p = self.profile()
+        self.twitch.code = export_code(self.cross())
         self.ov.set_crosshair(self.shown_cross(), p["png_path"], self.stretch_factor(), p["anim_paused"])
         self.place()
         if self.cfg["stream_page"]["on"]:
@@ -322,12 +339,17 @@ class App:
         sp = self.cfg["stream_page"]
         if sp["on"]:
             try:
-                self.stream.start(int(sp["port"]))
+                self.stream.start(int(sp["port"]), sp["token"])
                 self.publish_stream()
             except OSError as e:
                 self.notify(f"{tr('Stream page could not start')}: {e}")
         else:
             self.stream.stop()
+        tw = self.cfg["twitch"]
+        if tw["on"]:
+            self.twitch.start(tw["channel"], credman.load("twitch"), tw["cooldown"])
+        else:
+            self.twitch.stop()
         if self.cfg["discord_rpc"] and self.cfg["discord_client_id"]:
             self.presence.set(self.cfg["discord_client_id"], f"Profile: {self.cfg['active_profile']}")
         else:
@@ -340,7 +362,16 @@ class App:
         buf = QBuffer(data)
         buf.open(QIODevice.WriteOnly)
         img.save(buf, "PNG")
-        self.stream.publish(export_code(self.cross()), bytes(data))
+        sp = self.cfg["stream_page"]
+        code = export_code(self.cross())
+        qr = b""
+        if sp["qr"]:
+            qbuf = QBuffer(qdata := QByteArray())
+            qbuf.open(QIODevice.WriteOnly)
+            sharing.qr_image(code).save(qbuf, "PNG")
+            qr = bytes(qdata)
+        self.stream.publish(code, bytes(data), self.cfg["active_profile"], qr,
+                            {k: sp[k] for k in ("theme", "pos", "size", "code", "qr", "name")})
 
     def stretch_factor(self):
         """Stretched res: in-game pixels are native_w / w wide, so the crosshair is too."""
@@ -661,6 +692,7 @@ class App:
 
     def exit(self):
         self.stream.stop()
+        self.twitch.stop()
         self.presence.stop()
         self.save_timer.stop()
         self.save()

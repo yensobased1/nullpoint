@@ -23,6 +23,15 @@ LINK_PREFIX = "nullpoint://import/"
 CODE_RE = re.compile(r"XH\d;[A-Za-z0-9;:,.%_\-]{1,600}")  # only share-code characters, nothing else
 VAL_RE = re.compile(r"0;[A-Za-z0-9;.]{1,1000}")  # VALORANT crosshair code
 GALLERY_URL = "https://raw.githubusercontent.com/yensobased1/nullpoint/main/gallery/index.json"
+SUBMIT_URL = "https://github.com/yensobased1/nullpoint/issues/new"
+DATE_RE = re.compile(r"20\d\d-[01]\d-[0-3]\d")
+
+
+def submit_url(name, code):
+    """Prefilled 'gallery submission' issue form. Only opened in the browser; you review and submit it yourself."""
+    from urllib.parse import urlencode
+    q = {"template": "gallery-submission.yml", "title": f"Gallery: {name[:40]}", "name": name[:40], "code": code}
+    return SUBMIT_URL + "?" + urlencode(q)
 
 
 def asset(name):
@@ -232,7 +241,7 @@ class Gallery(QObject):
     def clean(entries):
         """Untrusted data: keep only entries with a valid share code, short text fields."""
         out = []
-        for e in entries if isinstance(entries, list) else []:
+        for e in entries[:500] if isinstance(entries, list) else []:
             if not isinstance(e, dict) or not isinstance(e.get("code"), str) or not CODE_RE.fullmatch(e["code"]):
                 continue
             try:
@@ -240,6 +249,7 @@ class Gallery(QObject):
             except ShareCodeError:
                 continue
             tags = e.get("tags") if isinstance(e.get("tags"), list) else []
+            added = e.get("added") if isinstance(e.get("added"), str) and DATE_RE.fullmatch(e["added"]) else ""
             out.append({"name": str(e.get("name", "Crosshair"))[:40], "author": str(e.get("author", ""))[:40],
-                        "tags": [str(t)[:20] for t in tags][:8], "code": e["code"]})
+                        "tags": [str(t)[:20] for t in tags][:8], "code": e["code"], "added": added})
         return out

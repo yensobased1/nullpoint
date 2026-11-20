@@ -17,3 +17,6 @@ crosshair_backup*.json
 
 # local knowledge graph
 graphify-out/
+
+# local tool config
+.claude/

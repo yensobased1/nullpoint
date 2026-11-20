@@ -25,7 +25,10 @@ import exporters
 import packfile
 import presets
 import safe_image
+import credman
 import sharing
+import twitch
+from stream_server import POSITIONS, THEMES
 import svg_export
 import cs2
 import valorant
@@ -1486,6 +1489,22 @@ class SettingsWindow(QWidget):
         lay = QVBoxLayout(page)
         lay.addWidget(QLabel(tr("Community crosshairs from github.com/yensobased1/nullpoint (gallery folder). "
                                 "Loaded only when you open this tab.")))
+        top = QHBoxLayout()
+        self.gal_search = QLineEdit()
+        self.gal_search.setPlaceholderText(tr("Search name, author or tag"))
+        self.gal_search.setAccessibleName(tr("Search gallery"))
+        self.gal_search.addAction(icon("search"), QLineEdit.LeadingPosition)
+        self.gal_search.textChanged.connect(lambda _: self._gallery_show())
+        top.addWidget(self.gal_search, 1)
+        self.gal_sort = QComboBox()
+        self.gal_sort.addItem(tr("Newest"), "new")
+        self.gal_sort.addItem(tr("Name"), "name")
+        self.gal_sort.currentIndexChanged.connect(lambda _: self._gallery_show())
+        top.addWidget(self.gal_sort)
+        lay.addLayout(top)
+        self.gal_chips = QHBoxLayout()
+        lay.addLayout(self.gal_chips)
+        self.gal_tags = set()
         self.gallery_list = QListWidget()
         self.gallery_list.setViewMode(QListWidget.IconMode)
         self.gallery_list.setIconSize(QSize(64, 64))
@@ -1504,6 +1523,10 @@ class SettingsWindow(QWidget):
         b = QPushButton(tr("Refresh"))
         b.clicked.connect(self._gallery_refresh)
         row.addWidget(b)
+        b = QPushButton(icon("share_card"), tr("Submit to gallery..."))
+        b.setToolTip(tr("Opens a prefilled GitHub issue in your browser. You review and send it yourself."))
+        b.clicked.connect(self._gallery_submit)
+        row.addWidget(b)
         row.addStretch()
         lay.addLayout(row)
         self.gallery = sharing.Gallery(os.path.join(config.CONFIG_DIR, "gallery_cache.json"))
@@ -1520,19 +1543,56 @@ class SettingsWindow(QWidget):
         self.gallery.fetch()
 
     def _gallery_loaded(self, entries, error):
+        for i, e in enumerate(entries):
+            e["order"] = i  # index order = when it was added, for entries without a date
         self.gallery_entries = entries
+        self.gallery_error = error
+        tags = sorted({t for e in entries for t in e["tags"]}, key=str.lower)
+        self.gal_tags &= set(tags)
+        while self.gal_chips.count():
+            self.gal_chips.takeAt(0).widget().deleteLater()
+        for t in tags[:20]:
+            b = QPushButton(icon("tags"), t)  # tag text is plain text on a button: never rich text
+            b.setCheckable(True)
+            b.setChecked(t in self.gal_tags)
+            b.toggled.connect(lambda on, t=t: (self.gal_tags.add(t) if on else self.gal_tags.discard(t), self._gallery_show()))
+            self.gal_chips.addWidget(b)
+        self.gal_chips.addStretch() if tags else None
+        self._gallery_show()
+
+    def _gallery_show(self):
+        """Grid filtered by search + tag chips, sorted newest first or by name. Thumbnails come from codes only."""
+        q = self.gal_search.text().strip().lower()
+        shown = [e for e in self.gallery_entries
+                 if (not q or q in " ".join([e["name"], e["author"]] + e["tags"]).lower()) and self.gal_tags <= set(e["tags"])]
+        if self.gal_sort.currentData() == "name":
+            shown.sort(key=lambda e: e["name"].lower())
+        else:
+            shown.sort(key=lambda e: (e["added"], e["order"]), reverse=True)
+        self.gallery_shown = shown
         self.gallery_list.clear()
-        for e in entries:
+        for e in shown:
             it = QListWidgetItem(self.thumbnail(import_code(e["code"])), e["name"])
-            it.setToolTip(f"{e['name']}  -  {e['author']}\n{', '.join(e['tags'])}")
+            it.setToolTip(f"{e['name']}  -  {e['author']}\n{', '.join(e['tags'])}".replace("<", "‹"))  # no rich text
             self.gallery_list.addItem(it)
-        self.gallery_status.setText(error or f"{len(entries)} {tr('crosshairs')}")
+        total = len(self.gallery_entries)
+        self.gallery_status.setText(getattr(self, "gallery_error", "") or f"{len(shown)} / {total} {tr('crosshairs')}")
 
     def _gallery_import(self):
         row = self.gallery_list.currentRow()
-        if 0 <= row < len(self.gallery_entries):
-            e = self.gallery_entries[row]
+        if 0 <= row < len(getattr(self, "gallery_shown", [])):
+            e = self.gallery_shown[row]
             self.confirm_import(e["code"], f"{e['name']}  -  {e['author']}")
+
+    def _gallery_submit(self):
+        cross = self.target("cross")
+        if cross["mode"] == "png":
+            self.say(tr("The gallery takes line and text crosshairs only (images can't go in a share code)."), True)
+            return
+        name, ok = QInputDialog.getText(self, tr("Submit to gallery..."), tr("Name:"), text=self.cfg["active_profile"])
+        if ok and name.strip():
+            QDesktopServices.openUrl(QUrl(sharing.submit_url(name.strip(), export_code(cross))))
+            self.say(tr("Your browser opened a prefilled GitHub issue. Check it, then press Submit there."))
 
     # ---------- QR ----------
     def _show_qr(self):
@@ -1716,13 +1776,16 @@ class SettingsWindow(QWidget):
         port = QSpinBox()
         port.setRange(1024, 65535)
         port.setValue(int(sp["port"]))
-        url = QLabel()
-        url.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        url.setText(f"http://127.0.0.1:{sp['port']}/")
+        url = QLineEdit()
+        url.setReadOnly(True)
+        url.setMinimumWidth(260)
+        url.setToolTip(tr("Keep this link private: anyone with it on this PC can see the page."))
+        show_url = lambda: url.setText(f"http://127.0.0.1:{sp['port']}/{sp['token']}/")
+        show_url()
 
         def stream_changed():
-            self.cfg["stream_page"] = {"on": on.isChecked(), "port": port.value()}
-            url.setText(f"http://127.0.0.1:{port.value()}/")
+            sp.update(on=on.isChecked(), port=port.value())
+            show_url()
             self.on_change("sharing")
 
         on.toggled.connect(lambda _: stream_changed())
@@ -1734,6 +1797,93 @@ class SettingsWindow(QWidget):
             row.addWidget(w)
         row.addStretch()
         f.addRow(tr("Stream page (OBS browser source)"), row)
+        row = QHBoxLayout()
+        theme_box, pos_box = QComboBox(), QComboBox()
+        for box, vals, key in ((theme_box, THEMES, "theme"), (pos_box, POSITIONS, "pos")):
+            for v in vals:
+                box.addItem(tr(v.replace("-", " ").capitalize()), v)
+            box.setCurrentIndex(max(0, box.findData(sp[key])))
+            box.currentIndexChanged.connect(lambda i, b=box, k=key: (sp.update({k: b.itemData(i)}), self.on_change("sharing")))
+        size = QSpinBox()
+        size.setRange(32, 256)
+        size.setSuffix(" px")
+        size.setValue(sp["size"])
+        size.editingFinished.connect(lambda: (sp.update(size=size.value()), self.on_change("sharing")))
+        for w in (theme_box, pos_box, size):
+            row.addWidget(w)
+        for key, label in (("code", "Code"), ("qr", "QR"), ("name", "Name")):
+            cb = QCheckBox(tr(label))
+            cb.setChecked(sp[key])
+            cb.toggled.connect(lambda v, k=key: (sp.update({k: v}), self.on_change("sharing")))
+            row.addWidget(cb)
+        new = QPushButton(tr("New link"))
+        new.setToolTip(tr("Makes a new private link; the old one stops working. Update it in OBS."))
+
+        def new_link():
+            import secrets
+            sp["token"] = secrets.token_urlsafe(24)
+            show_url()
+            self.on_change("sharing")
+
+        new.clicked.connect(new_link)
+        row.addWidget(new)
+        row.addStretch()
+        f.addRow(tr("Page style"), row)
+
+        tw = self.cfg["twitch"]
+        row = QHBoxLayout()
+        tw_on = QCheckBox(tr("Reply to !crosshair"))
+        tw_on.setChecked(tw["on"])
+        chan = QLineEdit(tw["channel"])
+        chan.setPlaceholderText(tr("your channel name"))
+        chan.setMaxLength(25)
+        cool = QSpinBox()
+        cool.setRange(5, 600)
+        cool.setSuffix(" s")
+        cool.setValue(tw["cooldown"])
+        cool.setToolTip(tr("Cooldown between replies."))
+        token_btn = QPushButton(tr("Set token..."))
+        forget = QPushButton(tr("Forget token"))
+
+        def tw_changed():
+            name = chan.text().strip().lower()
+            if tw_on.isChecked() and not twitch.CHANNEL_RE.fullmatch(name):
+                self.say(tr("Enter your Twitch channel name (letters, numbers, _)."), True)
+                tw_on.setChecked(False)
+                return
+            tw.update(on=tw_on.isChecked(), channel=name, cooldown=cool.value())
+            self.on_change("sharing")
+
+        def set_token():
+            text, ok = QInputDialog.getText(self, tr("Twitch token"), tr("Paste the chat token (stored in Windows Credential Manager):"),
+                                            QLineEdit.Password)
+            if not ok:
+                return
+            token = twitch.clean_token(text)
+            if not token:
+                self.say(tr("That doesn't look like a Twitch token."), True)
+                return
+            try:
+                credman.save("twitch", token)
+            except OSError as e:
+                self.say(str(e), True)
+                return
+            self.say(tr("Token saved in Windows Credential Manager."))
+            self.on_change("sharing")
+
+        tw_on.toggled.connect(lambda _: tw_changed())
+        chan.editingFinished.connect(tw_changed)
+        cool.editingFinished.connect(tw_changed)
+        token_btn.clicked.connect(set_token)
+        forget.clicked.connect(lambda: (credman.delete("twitch"), tw_on.setChecked(False), self.say(tr("Token removed."))))
+        for w in (tw_on, chan, cool, token_btn, forget):
+            row.addWidget(w)
+        f.addRow(tr("Twitch chat"), row)
+        note = QLabel(tr("Off by default. Viewers type !crosshair in your chat and Nullpoint replies with your code. "
+                         "See NEXT_STEPS.md for how to make a token."))
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        f.addRow(note)
         f.addRow(QLabel(tr("Local only (127.0.0.1). Add the URL as a Browser Source in OBS / Streamlabs.")))
         lp = QComboBox()
         for val in ("Auto", "On", "Off"):

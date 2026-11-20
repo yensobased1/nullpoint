@@ -1,0 +1,44 @@
+name: Gallery submission
+description: Share a crosshair for the Nullpoint community gallery.
+title: "Gallery: "
+labels: ["gallery"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing! Use **Settings > Gallery > Submit to gallery...** in Nullpoint to fill this in for you.
+        Please check the preview in Nullpoint before sending: paste the code into **Share > Paste Code**.
+        Only your own designs, please, and no real player or team names.
+  - type: input
+    id: name
+    attributes:
+      label: Crosshair name
+      description: Up to 40 characters.
+      placeholder: Classic Cyan
+    validations:
+      required: true
+  - type: input
+    id: tags
+    attributes:
+      label: Tags
+      description: Comma separated, up to 8 (e.g. dot, minimal, tac-fps).
+  - type: textarea
+    id: code
+    attributes:
+      label: Share code
+      description: The XH4 code from Settings > Share > Copy Code.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: preview
+    attributes:
+      label: Preview (optional)
+      description: Drop a screenshot or the share card PNG here.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This is my own design and it doesn't use a real player's or team's name.
+          required: true

@@ -1,13 +1,12 @@
 # Next steps
 
-## v2.2 progress (stopped at the usage budget, 2026-11-19)
+## v2.2 progress (2026-11-20)
 Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools), phase 4 (library and sharing),
-plus: built-in game profiles removed (games keep centering; optional profile + offset per game). 98 tests pass.
+phase 5 (community), plus: built-in game profiles removed (games keep centering; optional profile + offset
+per game). 108 tests pass (incl. the web builder's JS check with Node).
 Nothing is pushed or released yet: v2.2 work lives in local commits on `main`.
 
 Left to do, in order (spec: "Feature Pack v2.2"):
-- Phase 5: gallery grid / search / tags (#68, #69), gallery submit issue template (#70), OBS page themes (#74),
-  Twitch !crosshair with keyring token (#75), web builder in docs/builder with shared test vectors (#77).
 - Phase 6: tooltip previews (#81), safe mode (#90), config/library auto-repair + rotating backups (#91).
 - Phase 7: de / ru / pl / it / ja / ko / zh_CN + CJK fonts (#93, #94), missing-key report + docs/TRANSLATING.md (#95).
 - Phase 8: security audit (pip-audit, bandit, secret scan, hashes, fuzz tests, SECURITY.md, dependabot, CodeQL,
@@ -15,7 +14,13 @@ Left to do, in order (spec: "Feature Pack v2.2"):
 - Phase 9: in-app updater with SHA-256 check (#96), beta channel (#97), signing step + docs/SIGNING.md (#98),
   Scoop + Chocolatey (#99), MSIX + docs/STORE.md (#100), release v2.2.0.
 
-Notes from phases 1-4:
+Notes from phases 1-5:
+- Web builder (docs/builder) supports cross / T / dot / plus / square, line styles, dot shapes, outline,
+  shadow / glow and per-arm lengths. Rings, rotation, polygons, text and gradients stay app-only.
+  docs/builder/vectors.json is written by the app (crosshair/test_builder.py --write) and checked by both sides.
+- The stream page URL now has a private token: http://127.0.0.1:<port>/<token>/ (shown in App Settings).
+  Update the OBS browser source once after upgrading. "New link" makes a fresh token.
+- Twitch status messages that include the channel name or a retry time are English only.
 - CS2 share codes (CSGO-...) are not generated: no real game-made codes were available to verify the encoder.
   Export gives the console commands only.
 - Export warnings (VALORANT / CS2) are English only for now: they name the left-out feature in the text.
@@ -31,6 +36,29 @@ Notes from phases 1-4:
 - "Start with Windows" entries are rewritten on launch to add `--autostart` (needed for the startup delay).
 
 ## Manual steps for you
+
+### GitHub Pages for the web builder (after the v2.2 push)
+1. Push `main` (the release step does this).
+2. GitHub -> yensobased1/nullpoint -> **Settings** -> **Pages**.
+3. **Source**: Deploy from a branch. **Branch**: `main`, folder `/docs`. **Save**.
+4. After a minute the builder is at https://yensobased1.github.io/nullpoint/builder/ and its self-test at
+   https://yensobased1.github.io/nullpoint/builder/test.html (should say "All passed.").
+   (Or: `gh api -X POST repos/yensobased1/nullpoint/pages -f "source[branch]=main" -f "source[path]=/docs"`.)
+
+### Twitch !crosshair (token)
+Minimum scopes: `chat:read` and `chat:edit` (read your chat, send the reply). Nothing else.
+1. Open https://dev.twitch.tv/console/apps (sign in with your streaming account) -> **Register Your Application**.
+   Name: anything (e.g. `Nullpoint chat`). OAuth Redirect URL: `http://localhost`. Category: **Chat Bot**.
+   Client type: **Public**. Create, then copy the **Client ID**.
+2. In your browser (still signed in as your channel), open, with your Client ID filled in:
+   `https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost&scope=chat:read+chat:edit`
+3. Click **Authorize**. The browser goes to `http://localhost/#access_token=...` (the page itself won't load; that's fine).
+   Copy only the part after `access_token=` and before the next `&`.
+4. Nullpoint -> **App Settings** -> **Twitch chat**: type your channel name, **Set token...**, paste, then tick
+   **Reply to !crosshair**. The token is stored in Windows Credential Manager (entry `Nullpoint/twitch`), not in
+   config.json. **Forget token** removes it.
+5. These tokens expire after a while; when replies stop and the status says "login failed", repeat steps 2-4.
+   Never share the token: it can post in your chat.
 
 ### Discord Rich Presence (client ID)
 1. Open https://discord.com/developers/applications and sign in.

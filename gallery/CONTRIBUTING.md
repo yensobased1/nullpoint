@@ -6,7 +6,7 @@ The **Gallery** tab in Nullpoint reads `gallery/index.json` from this repository
 2. Fork this repository and edit `gallery/index.json`. Add one entry to `entries`:
 
    ```json
-   {"name": "My Crosshair", "author": "your-github-name", "tags": ["tac-fps", "minimal"], "code": "XH3;..."}
+   {"name": "My Crosshair", "author": "your-github-name", "tags": ["tac-fps", "minimal"], "code": "XH4;...", "added": "2026-11-20"}
    ```
 
    - `name` and `author`: up to 40 characters. `tags`: up to 8 short words.

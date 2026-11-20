@@ -1,0 +1,28 @@
+:root { --bg: #0b0b0b; --panel: #151515; --line: #2e2e2e; --text: #f2f2f2; --muted: #9a9a9a; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
+header { padding: 20px 16px 4px; max-width: 1100px; margin: 0 auto; }
+h1 { margin: 0; font: 700 28px Consolas, monospace; letter-spacing: 2px; }
+h1 span { font: 400 16px "Segoe UI", sans-serif; color: var(--muted); letter-spacing: 0; }
+main { display: flex; flex-wrap: wrap; gap: 20px; padding: 16px; max-width: 1100px; margin: 0 auto; }
+.preview { flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; max-width: 100%; }
+canvas { image-rendering: pixelated; background: #1d1d1d; border: 1px solid var(--line); max-width: 100%; }
+#real { align-self: flex-start; }
+form { flex: 1 1 380px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+fieldset { border: 1px solid var(--line); background: var(--panel); margin: 0; padding: 8px 12px 10px; }
+legend { font-weight: 600; padding: 0 4px; }
+.field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 8px; margin: 6px 0; }
+.field input[type=range], .field select, .field textarea { grid-column: 1 / -1; width: 100%; }
+textarea { background: #000; color: var(--text); border: 1px solid var(--line); font: 12px Consolas, monospace; resize: none; }
+select, input, button { background: #000; color: var(--text); border: 1px solid var(--line); padding: 4px 6px; font: inherit; }
+input[type=checkbox] { accent-color: #fff; }
+button { cursor: pointer; padding: 6px 14px; }
+button:hover, a:hover { border-color: #fff; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+a { color: var(--text); }
+.muted, output { color: var(--muted); }
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f4f4f4; --panel: #fff; --line: #cfcfcf; --text: #111; --muted: #555; }
+  select, input, button, textarea { background: #fff; }
+  input[type=checkbox] { accent-color: #000; }
+}
