@@ -30,24 +30,29 @@ class MONITORINFO(ctypes.Structure):
                 ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
 
 
-_names = {}  # pid -> exe name cache, so we open each process only once
+_paths = {}  # pid -> full exe path cache, so we open each process only once
 
 
-def process_name(pid):
-    if pid in _names:
-        return _names[pid]
-    name = ""
+def process_path(pid):
+    """Full path of a process's exe (asks Windows for the image name only; never opens the process's memory)."""
+    if pid in _paths:
+        return _paths[pid]
+    path = ""
     h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if h:
         buf = ctypes.create_unicode_buffer(1024)
         size = wintypes.DWORD(1024)
         if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
-            name = os.path.basename(buf.value).lower()
+            path = buf.value
         kernel32.CloseHandle(h)
-    if len(_names) > 256:
-        _names.clear()
-    _names[pid] = name
-    return name
+    if len(_paths) > 256:
+        _paths.clear()
+    _paths[pid] = path
+    return path
+
+
+def process_name(pid):
+    return os.path.basename(process_path(pid)).lower()
 
 
 def foreground():

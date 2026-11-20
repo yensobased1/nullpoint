@@ -121,6 +121,37 @@ class ProfileMigrationTests(unittest.TestCase):
         self.assertEqual(game_detect.match_game({"javaw.exe": ""}, "javaw.exe", None, (), "Minecraft 1.21"), "")
 
 
+class FullscreenTests(unittest.TestCase):
+    KEY = r"Software\NullpointTest\Layers"
+
+    def setUp(self):
+        import winreg
+        self.winreg = winreg
+        self.k = winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.KEY)
+
+    def tearDown(self):
+        self.k.Close()
+        self.winreg.DeleteKey(self.winreg.HKEY_CURRENT_USER, self.KEY)
+        self.winreg.DeleteKey(self.winreg.HKEY_CURRENT_USER, r"Software\NullpointTest")
+
+    def test_only_the_fso_flag_is_removed(self):
+        import fullscreen
+        a, b, c = r"C:\Games\A\a.exe", r"C:\Games\B\b.exe", r"C:\Games\C\c.exe"
+        for path, flags in ((a, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE HIGHDPIAWARE"), (b, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE"),
+                            (c, "RUNASADMIN")):
+            self.winreg.SetValueEx(self.k, path, 0, self.winreg.REG_SZ, flags)
+        self.assertEqual(fullscreen.fso_disabled(a.upper(), self.KEY), "user")  # path match ignores case
+        self.assertEqual(fullscreen.fso_disabled(c, self.KEY), "")
+        self.assertTrue(fullscreen.enable_fso(a, self.KEY))
+        self.assertEqual(self.winreg.QueryValueEx(self.k, a)[0], "~ HIGHDPIAWARE")  # other flags kept
+        self.assertTrue(fullscreen.enable_fso(b, self.KEY))
+        with self.assertRaises(OSError):
+            self.winreg.QueryValueEx(self.k, b)  # only "~" was left: value removed
+        self.assertFalse(fullscreen.enable_fso(c, self.KEY))
+        self.assertEqual(self.winreg.QueryValueEx(self.k, c)[0], "RUNASADMIN")
+        self.assertIsInstance(fullscreen.fso_off_for_all_games(), bool)
+
+
 class LobbyTests(unittest.TestCase):
     def test_hides_only_in_game_with_cursor_after_delay(self):
         import types

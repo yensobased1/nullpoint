@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 import config
 import game_detect
+import fullscreen
 import hdr
 from overlay import Overlay
 from alignment import AlignmentWindow
@@ -648,20 +649,59 @@ class App:
                 self.apply()
         if self.game_active:
             center = game_detect.client_center(hwnd)
-            self.check_fullscreen(hwnd)
+            self.check_fullscreen(hwnd, pid, exe)
+            if self.ov.isVisible():
+                self.ov.raise_top()  # games in (borderless) fullscreen can push themselves above other topmost windows
         else:
             center = game_detect.monitor_center(hwnd)
         if center:
             self.base_center = center
         self.place()
 
-    def check_fullscreen(self, hwnd):
+    def check_fullscreen(self, hwnd, pid=0, exe=""):
+        """Once per game window: fullscreen optimizations turned off for this game (fixable here), switched off for
+        all games, or the game running in true exclusive fullscreen (only the game's own setting can fix that)."""
         mode = self.cfg["fullscreen_mode"]
         if self.warned_hwnd == hwnd or mode == "Borderless":
             return
+        path = game_detect.process_path(pid) if pid else ""
+        where = fullscreen.fso_disabled(path)
+        if where:
+            self.warned_hwnd = hwnd
+            self.notify(tr("Fullscreen optimizations are turned off for this game, so the crosshair can't show in "
+                           "fullscreen. Click to fix."), QSystemTrayIcon.Warning, 10000,
+                        action=lambda: self.fix_fso(path, where))
+            return
         if mode == "Exclusive" or game_detect.exclusive_fullscreen():
             self.warned_hwnd = hwnd
-            self.notify(tr(EXCLUSIVE_MSG), QSystemTrayIcon.Warning, 6000)
+            game_mode = fullscreen.GAME_MODES.get(exe)
+            msg = tr(EXCLUSIVE_MSG)
+            if game_mode:
+                msg += f" {tr('In this game')}: {game_mode}."
+            if fullscreen.fso_off_for_all_games():
+                msg += " " + tr("Fullscreen optimizations are switched off for all games on this PC: "
+                                "Windows Settings > System > Display > Graphics may let you turn them back on.")
+            self.notify(msg, QSystemTrayIcon.Warning, 10000)
+
+    def fix_fso(self, path, where):
+        from PySide6.QtWidgets import QMessageBox
+        name = os.path.basename(path)
+        if where == "machine":
+            QMessageBox.information(None, "Nullpoint", f"{name}: " + tr(
+                "the setting is stored for all users. Right-click the game's .exe > Properties > Compatibility, untick "
+                "\"Disable fullscreen optimizations\" (and under \"Change settings for all users\"), then restart the game."))
+            return
+        if QMessageBox.question(None, "Nullpoint", f"{name}\n\n" + tr(
+                "Turn fullscreen optimizations back on for this game? This only changes this game's compatibility "
+                "setting for your Windows user (the same as unticking it in the .exe's Properties > Compatibility). "
+                "Restart the game afterwards.")) != QMessageBox.Yes:
+            return
+        try:
+            fullscreen.enable_fso(path)
+            self.warned_hwnd = None
+            self.notify(tr("Done. Restart the game and the crosshair will show in fullscreen."))
+        except OSError as e:
+            self.notify(f"{tr('Could not change the setting')}: {e}", QSystemTrayIcon.Warning)
 
     # ---------- hotkeys / tray ----------
     def register_hotkeys(self):
