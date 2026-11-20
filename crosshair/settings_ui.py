@@ -8,13 +8,13 @@ import sys
 import time
 import winreg
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QIcon, QImage, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
     QCompleter, QDialog, QDialogButtonBox, QFontComboBox, QHBoxLayout, QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSlider, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+    QScrollArea, QSlider, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolTip, QVBoxLayout, QWidget)
 
 import config
 import library
@@ -139,6 +139,8 @@ class SettingsWindow(QWidget):
         self.loaders = []
         self.loading = False
         self.variant = ""  # "" = default crosshair, else a resolution variant key
+        self.tips = {}  # widget -> (section, key, label, other value fn): tooltip with a before / after preview
+        self.tip_cache = {}
         self.setWindowTitle(tr("Nullpoint - Settings"))
         self.setWindowIcon(app_icon())
         self.resize(940, 620)
@@ -149,6 +151,29 @@ class SettingsWindow(QWidget):
         left = QVBoxLayout(self.left)
         left.setContentsMargins(0, 0, 0, 0)
         root.addWidget(self.left)
+        if getattr(app, "safe", False) is True:
+            banner = QGroupBox(tr("Safe mode"))
+            bl = QVBoxLayout(banner)
+            note = QLabel(tr("Started with default settings. Your own settings file isn't changed and nothing is saved."))
+            note.setWordWrap(True)
+            bl.addWidget(note)
+            row = QHBoxLayout()
+            back = QPushButton(tr("Use my settings"))
+            back.clicked.connect(app.leave_safe_mode)
+            reset = QPushButton(tr("Reset to defaults"))
+
+            def confirm_reset():
+                if QMessageBox.question(self, tr("Reset to defaults"),
+                                        tr("Replace your settings with the defaults? Your current file is kept in the "
+                                           "backups folder.")) == QMessageBox.Yes:
+                    app.reset_to_defaults()
+
+            reset.clicked.connect(confirm_reset)
+            row.addWidget(back)
+            row.addWidget(reset)
+            bl.addLayout(row)
+            banner.setStyleSheet(f"QGroupBox {{ border: 2px solid {theme.tokens['danger']}; }}")
+            left.addWidget(banner)
         top = QHBoxLayout()
         self.profile_box = QComboBox()
         self.profile_box.currentTextChanged.connect(self._pick_profile)
@@ -381,6 +406,10 @@ class SettingsWindow(QWidget):
         s.valueChanged.connect(lambda v: n.setValue(v / scale if dec else v))
         n.valueChanged.connect(from_spin)
         self.loaders.append(lambda: n.setValue(self.target(sec)[key]))
+        step = 0.3 if dec else max(1, (hi - lo) // 5)
+        other = lambda v: (v + step if v + step <= hi else v - step)
+        for w in (s, n):
+            self.add_tip(w, sec, key, label, lambda v: round(other(v), dec) if dec else int(other(v)))
         row = QHBoxLayout()
         row.addWidget(s, 1)
         row.addWidget(n)
@@ -392,6 +421,7 @@ class SettingsWindow(QWidget):
         c.setAccessibleName(tr(label))
         c.toggled.connect(lambda v: self.set_value(sec, key, v))
         self.loaders.append(lambda: c.setChecked(self.target(sec)[key]))
+        self.add_tip(c, sec, key, label, lambda v: not v)
         form.addRow(tr(label), c)
         return c
 
@@ -403,6 +433,8 @@ class SettingsWindow(QWidget):
             box.addItem(tr(text), val)
         box.currentIndexChanged.connect(lambda i: self.set_value(sec, key, box.itemData(i)))
         self.loaders.append(lambda: box.setCurrentIndex(max(0, box.findData(self.target(sec)[key]))))
+        vals = [v for v, _ in items]
+        self.add_tip(box, sec, key, label, lambda v: vals[(vals.index(v) + 1) % len(vals)] if v in vals else vals[0])
         form.addRow(tr(label), box)
         return box
 
@@ -2007,8 +2039,51 @@ class SettingsWindow(QWidget):
         self.update_display_info()
         self.preview.update()
 
+    # ---------- tooltip previews ----------
+    def add_tip(self, widget, sec, key, label, other):
+        """Hovering a crosshair setting shows the crosshair now vs with that setting changed (shared renderer)."""
+        if sec in ("profile", "stretch", "png"):
+            return
+        self.tips[widget] = (sec, key, label, other)
+        widget.installEventFilter(self)
+
+    def tip_html(self, sec, key, label, other):
+        import base64
+        import html as h
+        now = self.target("cross")
+        if now["mode"] == "png":
+            return ""
+        cur = now[key] if sec == "cross" else now[sec][key]
+        after = copy.deepcopy(now)
+        (after if sec == "cross" else after[sec])[key] = new = other(cur)
+        if after == now:
+            return ""
+        cache_key = (export_code(now), export_code(after))
+        if cache_key not in self.tip_cache:
+            cells = []
+            for cross, caption in ((now, tr("Now")), (after, f"{tr(label)}: {tr(str(new)) if isinstance(new, str) else new}")):
+                c = overlay.extent(cross)
+                img = render_image(lambda p, cc, cr=cross: overlay.render(p, cr, cc), c)
+                z = max(1, min(4, 96 // img.width()))
+                img = img.scaled(img.width() * z, img.height() * z)  # nearest neighbour: sharp pixels
+                buf = QBuffer(data := QByteArray())
+                buf.open(QIODevice.WriteOnly)
+                img.save(buf, "PNG")
+                uri = "data:image/png;base64," + base64.b64encode(bytes(data)).decode()
+                cells.append(f'<td align="center" style="background:#1b1b1b;padding:6px"><img src="{uri}"><br>'
+                             f'<span style="color:#ddd">{h.escape(caption)}</span></td>')
+            if len(self.tip_cache) > 64:
+                self.tip_cache.clear()
+            self.tip_cache[cache_key] = f'<b>{h.escape(tr(label))}</b><table cellspacing="4"><tr>{"".join(cells)}</tr></table>'
+        return self.tip_cache[cache_key]
+
     # ---------- offset nudge (arrow keys in the offset fields) ----------
     def eventFilter(self, obj, e):
+        if e.type() == e.Type.ToolTip and obj in self.tips:
+            text = self.tip_html(*self.tips[obj])
+            if text:
+                QToolTip.showText(e.globalPos(), text, obj)
+                return True
         if e.type() == e.Type.KeyPress and obj in getattr(self, "offset_spins", ()):
             d = {Qt.Key_Left: (-1, 0), Qt.Key_Right: (1, 0), Qt.Key_Up: (0, -1), Qt.Key_Down: (0, 1)}.get(e.key())
             if d:

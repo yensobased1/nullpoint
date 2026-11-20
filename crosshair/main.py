@@ -77,7 +77,7 @@ class Relay(QObject):
 
 
 class App:
-    def __init__(self):
+    def __init__(self, safe=False):
         self.qt = QApplication(sys.argv)
         self.qt.setQuitOnLastWindowClosed(False)
         self.qt.setApplicationName("Nullpoint")
@@ -86,7 +86,12 @@ class App:
         if config.migrate_old_folder():
             migrate_startup()
         self.first_run = not os.path.exists(config.CONFIG_PATH)
-        self.cfg = config.load()
+        # Safe mode (Shift held at start, or --safe): defaults in memory only; the config file isn't touched.
+        self.safe = safe
+        self.cfg = config.defaults() if safe else config.load()
+        if not safe:
+            library.load()  # repairs a damaged library from its backups
+            config.backup(library.LIBRARY_PATH)
         i18n.set_language(self.cfg["language"])
         self.qt.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
         self.ov = Overlay()
@@ -130,6 +135,7 @@ class App:
         self.tray.messageClicked.connect(lambda: self.tray_action() if self.tray_action else None)
         QGuiApplication.clipboard().dataChanged.connect(self.on_clipboard)
         self.tray.show()
+        QTimer.singleShot(1500, self.startup_notices)
 
         self.stream = StreamServer()
         self.relay = Relay()
@@ -172,8 +178,43 @@ class App:
         self.qt.setPalette(pal)
         return qss
 
+    def startup_notices(self):
+        if self.safe:
+            self.notify(tr("Safe mode: Nullpoint started with default settings. Your own settings file isn't changed."),
+                        QSystemTrayIcon.Warning, 8000, action=self.open_settings)
+        for name, source in config.REPAIRED:
+            msg = tr("was damaged and has been restored from a backup.") if source else \
+                tr("was damaged and no good backup was found, so it starts fresh.")
+            self.notify(f"{name} {msg} {tr('The damaged copy was kept as a .corrupt file next to it.')}",
+                        QSystemTrayIcon.Warning, 10000)
+        config.REPAIRED.clear()
+
+    def leave_safe_mode(self):
+        """Back to your own settings (read from disk again)."""
+        self.safe = False
+        self.cfg = config.load()
+        self.ov.reduce_motion = self.cfg["reduce_motion"]
+        self.after_config_swap()
+
+    def reset_to_defaults(self):
+        """Safe mode -> keep the defaults for real. The old file stays in the backups folder."""
+        config.backup(config.CONFIG_PATH)
+        self.safe = False
+        self.save()
+        self.after_config_swap()
+
+    def after_config_swap(self):
+        self.manual_profile = self.cfg["active_profile"]
+        self.last_hwnd = self.last_target = None
+        self.register_hotkeys()
+        self.apply_sharing()
+        self.apply()
+        self.set_language()  # rebuilds menus and the settings window from the new config
+
     def onboarding(self):
         """New install: wizard. Update: what's new, once."""
+        if self.safe:
+            return
         if self.first_run and not self.cfg["wizard_done"]:
             self.run_wizard()
         elif self.cfg["last_version"] != VERSION and not self.first_run:
@@ -423,6 +464,8 @@ class App:
                 self.settings.refresh()
 
     def save(self):
+        if self.safe:
+            return  # safe mode never writes over your settings
         try:
             config.save(self.cfg)
         except OSError as e:
@@ -706,9 +749,10 @@ def main():
     onboarding.install_crash_hook(VERSION)  # local crash reports, never uploaded
     # Own taskbar identity, so Windows shows the Nullpoint icon instead of python.exe's.
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nullpoint.Overlay")
-    args = [a for a in sys.argv[1:] if a != AUTOSTART]
+    args = [a for a in sys.argv[1:] if a not in (AUTOSTART, "--safe")]
     arg = args[0] if args else ""
     autostart = AUTOSTART in sys.argv
+    safe = "--safe" in sys.argv or bool(ctypes.windll.user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
     # One instance only: a second copy would double-draw and fail to get the hotkeys.
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = ctypes.c_void_p
@@ -723,7 +767,7 @@ def main():
             sock.waitForBytesWritten(1500)
             sock.disconnectFromServer()
         return
-    app = App()
+    app = App(safe)
     if arg:
         QTimer.singleShot(500, lambda: app.handle_message(arg))
     sys.exit(app.qt.exec())

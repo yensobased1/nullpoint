@@ -11,12 +11,20 @@ CUSTOM_DIR = os.path.join(CONFIG_DIR, "custom")
 
 
 def load():
+    import config
     try:
-        with open(LIBRARY_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
+        data = config.read_json(LIBRARY_PATH)
+    except FileNotFoundError:
         return []
-    return clean(data)
+    except (OSError, ValueError):  # damaged: restore the newest good backup instead of starting empty
+        data = config.repair(LIBRARY_PATH, must_be_list)
+    return clean(data) if isinstance(data, list) else []
+
+
+def must_be_list(data):
+    if not isinstance(data, list):
+        raise ValueError("library must be a list")
+    return data
 
 
 def clean(data):

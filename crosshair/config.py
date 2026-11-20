@@ -16,6 +16,10 @@ CONFIG_DIR = os.path.join(EXE_DIR, "data") if PORTABLE else os.path.join(APPDATA
 OLD_DIR = os.path.join(APPDATA, "CrosshairOverlay")  # name before the Nullpoint rename
 DEFAULT_UPDATE_REPO = "yensobased1/nullpoint"
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+BACKUP_DIR = os.path.join(CONFIG_DIR, "backups")
+MAX_BACKUPS = 10
+MAX_JSON = 5 * 1024 * 1024
+REPAIRED = []  # (file name, backup it came from or "") per repaired file; the app shows these once
 
 # Every crosshair setting. Share codes encode exactly this dict (see share_code.py).
 DEFAULT_CROSSHAIR = {
@@ -256,19 +260,81 @@ def migrate_old_folder():
     return True
 
 
+def defaults():
+    return fix_profiles(copy.deepcopy(DEFAULT_CONFIG))
+
+
+def read_json(path):
+    if os.path.getsize(path) > MAX_JSON:
+        raise ValueError("file too big")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def backups_of(path):
+    """Backups of config.json / library.json, newest first."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    try:
+        names = [n for n in os.listdir(BACKUP_DIR) if n.startswith(stem + "-") and n.endswith(".json")]
+    except OSError:
+        return []
+    return [os.path.join(BACKUP_DIR, n) for n in sorted(names, reverse=True)]  # names sort by time
+
+
+def backup(path):
+    """Keep a copy of a file that just loaded fine (skipped if the newest backup is identical). Last 10 kept."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        old = backups_of(path)
+        if old:
+            with open(old[0], "rb") as f:
+                if f.read() == data:
+                    return
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        ns = time.time_ns()  # one clock read, so names always sort in time order
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(ns // 10**9))
+        dst = os.path.join(BACKUP_DIR, f"{stem}-{stamp}-{ns % 10**9:09d}.json")
+        with open(dst + ".tmp", "wb") as f:
+            f.write(data)
+        os.replace(dst + ".tmp", dst)
+        for extra in backups_of(path)[MAX_BACKUPS:]:
+            os.remove(extra)
+    except OSError:
+        pass  # a missing backup must never stop the app
+
+
+def repair(path, parse):
+    """A damaged file: keep it as <file>.<time>.corrupt, then restore the newest backup that still parses.
+    -> parsed data, or None when no backup works (the caller starts fresh)."""
+    corrupt = f"{path}.{time.strftime('%Y%m%d-%H%M%S')}.corrupt"
+    try:
+        os.replace(path, corrupt)
+    except OSError:
+        pass
+    for b in backups_of(path):
+        try:
+            data = parse(read_json(b))
+            shutil.copyfile(b, path + ".tmp")
+            os.replace(path + ".tmp", path)
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+        REPAIRED.append((os.path.basename(path), os.path.basename(b)))
+        return data
+    REPAIRED.append((os.path.basename(path), ""))
+    return None
+
+
 def load():
     if not os.path.exists(CONFIG_PATH):
-        return fix_profiles(copy.deepcopy(DEFAULT_CONFIG))
+        return defaults()
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return normalize(json.load(f), keep_old_profiles=True)
-    except Exception:
-        backup = CONFIG_PATH + time.strftime(".corrupt-%Y%m%d-%H%M%S.bak")
-        try:
-            os.replace(CONFIG_PATH, backup)
-        except OSError:
-            pass
-        return fix_profiles(copy.deepcopy(DEFAULT_CONFIG))
+        cfg = normalize(read_json(CONFIG_PATH), keep_old_profiles=True)
+    except Exception:  # damaged / hand-edited badly: never crash, never silently lose settings
+        return repair(CONFIG_PATH, lambda d: normalize(d, keep_old_profiles=True)) or defaults()
+    backup(CONFIG_PATH)
+    return cfg
 
 
 def normalize(data, keep_old_profiles=False):

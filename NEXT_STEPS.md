@@ -2,19 +2,20 @@
 
 ## v2.2 progress (2026-11-20)
 Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools), phase 4 (library and sharing),
-phase 5 (community), plus: built-in game profiles removed (games keep centering; optional profile + offset
-per game). 108 tests pass (incl. the web builder's JS check with Node).
+phase 5 (community), phase 6 (reliability and UI), plus: built-in game profiles removed (games keep centering; optional profile + offset
+per game). 115 tests pass (incl. the web builder's JS check with Node).
 Nothing is pushed or released yet: v2.2 work lives in local commits on `main`.
 
 Left to do, in order (spec: "Feature Pack v2.2"):
-- Phase 6: tooltip previews (#81), safe mode (#90), config/library auto-repair + rotating backups (#91).
 - Phase 7: de / ru / pl / it / ja / ko / zh_CN + CJK fonts (#93, #94), missing-key report + docs/TRANSLATING.md (#95).
 - Phase 8: security audit (pip-audit, bandit, secret scan, hashes, fuzz tests, SECURITY.md, dependabot, CodeQL,
   docs/SECURITY_AUDIT.md).
 - Phase 9: in-app updater with SHA-256 check (#96), beta channel (#97), signing step + docs/SIGNING.md (#98),
   Scoop + Chocolatey (#99), MSIX + docs/STORE.md (#100), release v2.2.0.
 
-Notes from phases 1-5:
+Notes from phases 1-6:
+- Safe mode: hold Shift while Nullpoint starts (or run it with --safe). Backups: %APPDATA%\Nullpoint\backups (last 10
+  of config.json and library.json, made when a file loads fine). A damaged file is kept as <name>.<time>.corrupt.
 - Web builder (docs/builder) supports cross / T / dot / plus / square, line styles, dot shapes, outline,
   shadow / glow and per-arm lengths. Rings, rotation, polygons, text and gradients stay app-only.
   docs/builder/vectors.json is written by the app (crosshair/test_builder.py --write) and checked by both sides.
