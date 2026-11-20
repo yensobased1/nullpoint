@@ -22,7 +22,7 @@
 - **Tools**: eDPI calculator, resource monitor, low-power mode on battery, portable mode (USB stick)
 - **Extras**: OBS stream page, optional Discord Rich Presence, alignment test, black & white dark/light theme,
   first-run wizard, undo/redo, crash reports that stay on your PC
-- **Languages**: English, العربية, Español, Português (Brasil), Français, Türkçe
+- **Languages**: English, العربية, Deutsch, Español, Français, Italiano, Polski, Português (Brasil), Русский, Türkçe, 日本語, 한국어, 简体中文
 
 ## Safety
 
@@ -71,9 +71,10 @@ Hotkeys can be changed in **App Settings**.
 
 ## Translations
 
-Spanish, Portuguese (BR), French and Turkish are **machine-translated**. Fixes are very welcome:
-edit `crosshair/lang/<code>.json` (the keys are the English text, the values are your language) and open a pull
-request. `test_lang.py` checks that every language has every key.
+German, Spanish, French, Italian, Polish, Portuguese (BR), Russian, Turkish, Japanese, Korean and Simplified
+Chinese are **machine-translated**. Fixes are very welcome: see [docs/TRANSLATING.md](docs/TRANSLATING.md)
+(the keys in `crosshair/lang/<code>.json` are the English text, the values are your language).
+`python crosshair/lang_report.py` lists missing keys; `test_lang.py` checks that every language has every key.
 
 ## Details
 

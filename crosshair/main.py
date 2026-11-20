@@ -94,6 +94,8 @@ class App:
             config.backup(library.LIBRARY_PATH)
         i18n.set_language(self.cfg["language"])
         self.qt.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
+        self.base_font = self.qt.font()
+        self.qt.setFont(i18n.ui_font(self.base_font))
         self.ov = Overlay()
         self.ov.reduce_motion = self.cfg["reduce_motion"]
         self.ov.hotkey.connect(self.on_hotkey)
@@ -513,6 +515,7 @@ class App:
     def set_language(self):
         i18n.set_language(self.cfg["language"])
         self.qt.setLayoutDirection(Qt.RightToLeft if i18n.is_rtl() else Qt.LeftToRight)
+        self.qt.setFont(i18n.ui_font(self.base_font))
         self.build_menu()
         if self.settings:  # rebuild the window so every label is re-translated; state lives in cfg
             pos, tab, was_open = self.settings.pos(), self.settings.tabs.currentIndex(), self.settings.isVisible()

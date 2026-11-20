@@ -1,5 +1,8 @@
 import json
 import os
+import re
+import subprocess
+import sys
 import unittest
 
 from updates import version_tuple
@@ -8,12 +11,35 @@ LANG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang")
 
 
 class LangTests(unittest.TestCase):
-    def test_arabic_covers_every_english_key(self):
+    def test_every_language_covers_every_english_key(self):
+        from ui.i18n import LANGUAGES
         with open(os.path.join(LANG, "en.json"), encoding="utf-8") as f:
             en = json.load(f)
-        for code in ("ar", "es", "pt_BR", "fr", "tr"):
+        self.assertEqual({f[:-5] for f in os.listdir(LANG) if f.endswith(".json")}, set(LANGUAGES))
+        for code in LANGUAGES:
             with open(os.path.join(LANG, code + ".json"), encoding="utf-8") as f:
-                self.assertEqual(set(en) - set(json.load(f)), set(), code)
+                table = json.load(f)
+            self.assertEqual(set(en) - set(table), set(), code)
+            for k, v in table.items():  # shown in labels: plain text only, never markup
+                self.assertIsNone(re.search(r"<\s*[A-Za-z/!]", v), (code, v))
+                self.assertTrue(isinstance(v, str) and v.strip(), (code, k))
+
+    def test_report_script_is_clean(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        r = subprocess.run([sys.executable, os.path.join(here, "lang_report.py"), "--strict"], capture_output=True,
+                           text=True, cwd=here, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_missing_key_falls_back_to_english(self):
+        from ui import i18n
+        i18n.set_language("ja")
+        try:
+            self.assertEqual(i18n.tr("no such key 123"), "no such key 123")
+            self.assertNotEqual(i18n.tr("Apply"), "Apply")
+            self.assertEqual(i18n.ui_font(__import__("PySide6.QtGui", fromlist=["QFont"]).QFont("Segoe UI")).families()[0],
+                             "Yu Gothic UI")
+        finally:
+            i18n.set_language("en")
 
     def test_version_compare(self):
         self.assertGreater(version_tuple("v2.1.0"), version_tuple("2.0.0"))
