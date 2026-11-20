@@ -95,6 +95,21 @@ def window_title(hwnd):
     return buf.value
 
 
+class CURSORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hCursor", wintypes.HANDLE),
+                ("ptScreenPos", wintypes.POINT)]
+
+
+user32.GetCursorInfo.argtypes = [ctypes.POINTER(CURSORINFO)]
+
+
+def cursor_visible():
+    """True when Windows shows the mouse cursor. Games hide it while you aim and show it in lobbies / menus.
+    Only asks Windows about the cursor: nothing is read from the game."""
+    ci = CURSORINFO(cbSize=ctypes.sizeof(CURSORINFO))
+    return bool(user32.GetCursorInfo(ctypes.byref(ci))) and bool(ci.flags & 1)  # CURSOR_SHOWING
+
+
 def client_size(hwnd):
     """(width, height) of the window's client area, or None."""
     r = wintypes.RECT()

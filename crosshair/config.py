@@ -84,6 +84,7 @@ DEFAULT_CONFIG = {
     "active_profile": "Default",
     "visible": True,
     "show_only_in_games": True,  # UI: "Hide when game isn't focused"
+    "hide_in_menus": False,  # hide while the game shows the mouse cursor (lobby / menus)
     "fullscreen_mode": "Auto",  # Auto / Borderless / Exclusive
     # toggle/settings/switcher = global hotkeys; hold_hide/cheat = held keys (keyboard or Mouse2-5)
     "hotkeys": {"toggle": "F8", "settings": "F9", "switcher": "Alt+X", "hold_hide": "", "cheat": "F1",

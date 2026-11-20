@@ -1737,6 +1737,12 @@ class SettingsWindow(QWidget):
         only.setChecked(self.cfg["show_only_in_games"])
         only.toggled.connect(lambda v: self._set_cfg("show_only_in_games", v))
         f.addRow(tr("Hide when game isn't focused"), only)
+        lobby = QCheckBox()
+        lobby.setChecked(self.cfg["hide_in_menus"])
+        lobby.setToolTip(tr("Hides the crosshair while the game shows your mouse cursor (lobby, menus, inventory) "
+                            "and shows it again when you aim. Games that draw their own menu cursor may not be detected."))
+        lobby.toggled.connect(lambda v: self._set_cfg("hide_in_menus", v))
+        f.addRow(tr("Hide in lobby and menus"), lobby)
         fs = QComboBox()
         fs.addItems(["Auto", "Borderless", "Exclusive"])
         fs.setCurrentText(self.cfg["fullscreen_mode"])

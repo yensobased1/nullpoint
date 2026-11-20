@@ -46,7 +46,8 @@ HOTKEY_IDS = {"toggle": 1, "settings": 2, "switcher": 3, "nudge": 4}
 VK_LBUTTON = 0x01
 NUDGE_KEYS = {0x25: (-1, 0), 0x27: (1, 0), 0x26: (0, -1), 0x28: (0, 1)}  # arrows
 VK_SHIFT, VK_ESCAPE = 0x10, 0x1B
-AUTOSTART = "--autostart"  # added by the "Start with Windows" entry
+AUTOSTART = "--autostart"
+MENU_DELAY = 0.15  # seconds the cursor must stay shown / hidden before the crosshair follows  # added by the "Start with Windows" entry
 HOTKEY_LABELS = {"toggle": "Toggle overlay", "settings": "Open settings", "switcher": "Quick switcher",
                  "nudge": "Nudge mode",
                  "hold_hide": "Hide while held", "cheat": "Show this cheat sheet (hold)"}
@@ -111,6 +112,8 @@ class App:
         self.native = (0, 0)
         self.align = None  # alignment test window while open
         self.held_hidden = False  # hide-while-held key is down
+        self.menu_hidden = False  # a game is focused and shows its mouse cursor (lobby / menu)
+        self._menu_since = None
         self.game_res = None  # "2560x1440" of the focused game window, picks a resolution variant
         self.hdr_mult = 1.0
         self.nudging = False
@@ -449,6 +452,7 @@ class App:
         gx, gy = self.cfg["game_offsets"].get(self.game_exe, (0, 0)) if self.game_active else (0, 0)
         self.ov.set_center(cx + p["offset_x"] + gx, cy + p["offset_y"] + gy)
         want = bool(self.align) or (self.cfg["visible"] and not self.held_hidden and not self.startup_hold
+                                    and not self.menu_hidden
                                     and (self.game_active or not self.cfg["show_only_in_games"]))
         if want != self.ov.isVisible():
             self.ov.setVisible(want)
@@ -681,6 +685,7 @@ class App:
             self.held_hidden = down
             self.place()
         # Fire expand: our own left-mouse state only, and only while a game window is focused.
+        self.poll_menu()
         if self.nudging:
             self.poll_nudge()
         ex = self.cross()["expand"]["on"]
@@ -692,6 +697,21 @@ class App:
             self.card.show_lines(tr("Nullpoint hotkeys"), lines, self.center())
         elif not show and self.card.isVisible():
             self.card.hide()
+
+    def poll_menu(self):
+        """Hide in lobby / menus: the game shows the mouse cursor there and hides it while you aim.
+        The state must hold for MENU_DELAY so a quick flicker (alt-tab, a scoreboard) doesn't blink the crosshair."""
+        menu = self.cfg["hide_in_menus"] and self.game_active and game_detect.cursor_visible()
+        if menu == self.menu_hidden:
+            self._menu_since = None
+            return
+        now = time.monotonic()
+        if self._menu_since is None:
+            self._menu_since = now
+        elif now - self._menu_since >= MENU_DELAY:
+            self._menu_since = None
+            self.menu_hidden = menu
+            self.place()
 
     def poll_nudge(self):
         """Nudge mode: each arrow press moves the crosshair 1 px (Shift: 5 px). Esc ends it. Keys still reach the game."""

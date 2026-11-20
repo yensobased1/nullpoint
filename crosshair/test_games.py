@@ -121,6 +121,36 @@ class ProfileMigrationTests(unittest.TestCase):
         self.assertEqual(game_detect.match_game({"javaw.exe": ""}, "javaw.exe", None, (), "Minecraft 1.21"), "")
 
 
+class LobbyTests(unittest.TestCase):
+    def test_hides_only_in_game_with_cursor_after_delay(self):
+        import types
+        from unittest import mock
+        import main
+        app = types.SimpleNamespace(cfg={"hide_in_menus": True}, game_active=True, menu_hidden=False,
+                                    _menu_since=None, placed=0)
+        app.place = lambda: setattr(app, "placed", app.placed + 1)
+        poll = lambda: main.App.poll_menu(app)
+        clock = [100.0]
+        with mock.patch.object(main.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(game_detect, "cursor_visible", lambda: True):
+            poll()
+            self.assertFalse(app.menu_hidden)  # not yet: must hold for MENU_DELAY
+            clock[0] += main.MENU_DELAY
+            poll()
+            self.assertTrue(app.menu_hidden)
+            app.game_active = False  # alt-tabbed out: lobby hiding no longer applies
+            poll()
+            clock[0] += main.MENU_DELAY
+            poll()
+            self.assertFalse(app.menu_hidden)
+            app.game_active, app.cfg["hide_in_menus"] = True, False  # setting off: never hides
+            for _ in range(3):
+                clock[0] += 1
+                poll()
+            self.assertFalse(app.menu_hidden)
+        self.assertIsInstance(game_detect.cursor_visible(), bool)
+
+
 class HdrTests(unittest.TestCase):
     def test_boost(self):
         c = copy.deepcopy(DEFAULT_CROSSHAIR)
