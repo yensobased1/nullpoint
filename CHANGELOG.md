@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.2.2
+- **Fullscreen help**: if "Disable fullscreen optimizations" is set for a game (the usual reason the crosshair
+  doesn't show in fullscreen), Nullpoint notices it and fixes it after you confirm (that game, your Windows user
+  only). It also tells you when fullscreen optimizations are off for all games.
+- The overlay keeps itself on top while a game is focused, so fullscreen games can't cover it.
+- The exclusive-fullscreen warning names the exact window mode to pick in Fortnite, VALORANT, CS2, Apex,
+  Overwatch 2, Call of Duty and Minecraft.
+- True exclusive fullscreen still can't be drawn over: only DirectX hooks can do that, and anti-cheat bans them.
+
 ## v2.2.1
 - **Hide in lobby and menus** (Settings > App Settings, off by default): the crosshair hides while the game shows
   your mouse cursor (lobby, menus, inventory) and comes back when you aim. Only asks Windows whether the cursor is

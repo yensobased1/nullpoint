@@ -1,10 +1,10 @@
 {
-    "version": "2.2.1",
+    "version": "2.2.2",
     "description": "Simple, clean crosshair overlay for Windows (click-through window, no game injection).",
     "homepage": "https://github.com/yensobased1/nullpoint",
     "license": "MIT",
-    "url": "https://github.com/yensobased1/nullpoint/releases/download/v2.2.1/Nullpoint.exe#/Nullpoint.exe",
-    "hash": "9c7b116409e6154dcb632cbb04b46de9a619b6eb583549513a0c330467784121",
+    "url": "https://github.com/yensobased1/nullpoint/releases/download/v2.2.2/Nullpoint.exe#/Nullpoint.exe",
+    "hash": "fd71aca821cabbcfdede87c43c70e10198f71f7f10e72f49cd27e3e507d2390a",
     "bin": "Nullpoint.exe",
     "shortcuts": [
         [
