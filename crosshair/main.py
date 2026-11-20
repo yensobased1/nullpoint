@@ -147,6 +147,7 @@ class App:
         self.presence = Presence()
         self.ipc = QLocalServer()
         QLocalServer.removeServer(IPC_NAME)  # stale socket from a crash
+        self.ipc.setSocketOptions(QLocalServer.UserAccessOption)  # only this Windows user can send messages
         self.ipc.listen(IPC_NAME)
         self.ipc.newConnection.connect(self.on_ipc)
         if self.cfg["register_links"]:
@@ -748,14 +749,31 @@ class App:
         self.qt.quit()
 
 
+def parse_args(args):
+    """-> (message for the app, autostart, safe). A nullpoint:// launch comes from a web page, so it can't switch
+    modes: if any argument is a link, every flag is ignored and only that link (length-capped) is passed on."""
+    link = next((a for a in args if a.lower().startswith("nullpoint:")), None)
+    if link is not None:
+        return link[:2000], False, False
+    rest = [a for a in args if a not in (AUTOSTART, "--safe")]
+    return (rest[0][:2000] if rest else ""), AUTOSTART in args, "--safe" in args
+
+
+def harden_dll_search():
+    """Load DLLs only from the app folder, System32 and folders added on purpose (not the current directory)."""
+    try:
+        ctypes.windll.kernel32.SetDefaultDllDirectories(0x1000)  # LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
+    except (AttributeError, OSError):
+        pass  # nosec B110 - very old Windows without the API: keep the default order
+
+
 def main():
     onboarding.install_crash_hook(VERSION)  # local crash reports, never uploaded
     # Own taskbar identity, so Windows shows the Nullpoint icon instead of python.exe's.
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Nullpoint.Overlay")
-    args = [a for a in sys.argv[1:] if a not in (AUTOSTART, "--safe")]
-    arg = args[0] if args else ""
-    autostart = AUTOSTART in sys.argv
-    safe = "--safe" in sys.argv or bool(ctypes.windll.user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
+    harden_dll_search()
+    arg, autostart, safe = parse_args(sys.argv[1:])
+    safe = safe or bool(ctypes.windll.user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
     # One instance only: a second copy would double-draw and fail to get the hotkeys.
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = ctypes.c_void_p

@@ -99,7 +99,7 @@ DEFAULT_CONFIG = {
     "last_update_check": 0,
     "register_links": True,  # handle nullpoint://import/<code> links (per-user registry, no admin)
     # Local page for OBS browser sources: 127.0.0.1 only, URL needs the random token (made on first use).
-    "stream_page": {"on": False, "port": 7373, "token": "", "theme": "dark", "pos": "top-left", "size": 96,
+    "stream_page": {"on": False, "port": 7373, "token": "", "theme": "dark", "pos": "top-left", "size": 96,  # nosec B105 - token "" = make one on load
                     "code": True, "qr": False, "name": True},
     # Twitch !crosshair (opt-in). The token is in Windows Credential Manager, never here.
     "twitch": {"on": False, "channel": "", "cooldown": 30},

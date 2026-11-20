@@ -2,17 +2,18 @@
 
 ## v2.2 progress (2026-11-20)
 Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools), phase 4 (library and sharing),
-phase 5 (community), phase 6 (reliability and UI), phase 7 (languages), plus: built-in game profiles removed (games keep centering; optional profile + offset
-per game). 117 tests pass (incl. the web builder's JS check with Node).
+phase 5 (community), phase 6 (reliability and UI), phase 7 (languages), phase 8 (security audit), plus: built-in game profiles removed (games keep centering; optional profile + offset
+per game). 131 tests pass (incl. fuzz tests) (incl. the web builder's JS check with Node).
 Nothing is pushed or released yet: v2.2 work lives in local commits on `main`.
 
 Left to do, in order (spec: "Feature Pack v2.2"):
-- Phase 8: security audit (pip-audit, bandit, secret scan, hashes, fuzz tests, SECURITY.md, dependabot, CodeQL,
-  docs/SECURITY_AUDIT.md).
 - Phase 9: in-app updater with SHA-256 check (#96), beta channel (#97), signing step + docs/SIGNING.md (#98),
   Scoop + Chocolatey (#99), MSIX + docs/STORE.md (#100), release v2.2.0.
 
-Notes from phases 1-7:
+Notes from phases 1-8:
+- Security audit: docs/SECURITY_AUDIT.md. Private vulnerability reporting is enabled on GitHub.
+- Dependencies are pinned with hashes: after changing requirements.in, run
+  `.venv\Scripts\pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in`.
 - New languages (de, ru, pl, it, ja, ko, zh_CN) are machine-translated and not reviewed by native speakers.
   Japanese / Korean / Chinese use the Windows UI fonts Yu Gothic UI / Malgun Gothic / Microsoft YaHei UI.
 - Safe mode: hold Shift while Nullpoint starts (or run it with --safe). Backups: %APPDATA%\Nullpoint\backups (last 10

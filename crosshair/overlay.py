@@ -262,13 +262,18 @@ def transform_image(img, png, allow_scale=True):
 
 
 def png_pixmap(path, png):
-    """Load + scale + rotate a PNG/SVG (or a GIF's first frame) once; caller caches the result."""
+    """Load + scale + rotate a PNG/SVG (or a GIF's first frame) once; caller caches the result.
+    Paths come from the config / library, so they get the same size and safety checks as any outside image."""
+    import safe_image
     if not path or not os.path.exists(path):
         return None
+    try:
+        img = safe_image.load(path)
+    except safe_image.ImageError:
+        return None
     if path.lower().endswith(".svg"):
-        r = QSvgRenderer(path)
-        if not r.isValid():
-            return None
+        with open(path, "rb") as f:
+            r = safe_image.svg_ok(f.read())  # vector render at the exact size below (crisp when scaled)
         size = r.defaultSize() * (png["scale"] / 100.0)
         img = QImage(max(1, size.width()), max(1, size.height()), QImage.Format_ARGB32_Premultiplied)
         img.fill(0)
@@ -276,8 +281,7 @@ def png_pixmap(path, png):
         r.render(p)  # vector render at the exact target size: crisp at any scale
         p.end()
         return transform_image(img, png, allow_scale=False)
-    img = QImage(path)
-    return None if img.isNull() else transform_image(img, png)
+    return transform_image(img, png)
 
 
 # ---------- the renderer ----------
@@ -536,6 +540,11 @@ class Overlay(QWidget):
             self.movie.deleteLater()
             self.movie = None
         if path:
+            import safe_image
+            try:
+                safe_image.load(path)  # size, frame count, network path checks before QMovie decodes it
+            except safe_image.ImageError:
+                return
             self.movie = QMovie(path)
             self.movie.frameChanged.connect(self._gif_frame)
             self.movie.start()

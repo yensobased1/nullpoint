@@ -25,7 +25,11 @@ class ImageError(ValueError):
     pass
 
 
-def check_file(path):
+def check_file(path, allow_unc=False):
+    """Size check. Network paths (\\\\server\\share) are refused unless the user picked the file themselves:
+    opening one from a config / library entry could leak the Windows login hash to that server."""
+    if not allow_unc and str(path).replace("/", "\\").startswith("\\\\"):
+        raise ImageError("Network paths aren't loaded automatically. Copy the image to this PC.")
     try:
         size = os.path.getsize(path)
     except OSError:
@@ -64,9 +68,10 @@ def svg_ok(data):
     return r
 
 
-def load(path):
-    """File -> QImage (first frame for GIFs). Raises ImageError with a readable message."""
-    check_file(path)
+def load(path, allow_unc=False):
+    """File -> QImage (first frame for GIFs). Raises ImageError with a readable message.
+    allow_unc: only for files the user picked in a dialog or dropped."""
+    check_file(path, allow_unc)
     if path.lower().endswith(".svg"):
         with open(path, "rb") as f:
             r = svg_ok(f.read())

@@ -22,6 +22,8 @@ def is_cs2(text):
 
 
 def code_bytes(text):
+    if len(text or "") > 200:
+        raise ShareCodeError("That code is too long to be a CS2 crosshair code.")
     code = re.sub(r"\s+", "", text or "")
     if not CODE_RE.fullmatch(code):
         raise ShareCodeError("Not a CS2 crosshair code (expected CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx).")

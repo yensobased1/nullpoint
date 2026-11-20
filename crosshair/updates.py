@@ -2,7 +2,8 @@
 import json
 import re
 import threading
-import urllib.request
+
+import net
 
 from PySide6.QtCore import QObject, Signal
 
@@ -23,13 +24,10 @@ class UpdateChecker(QObject):
 
     def _run(self, repo):
         try:
-            req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",
-                                         headers={"User-Agent": "Nullpoint-update-check",
-                                                  "Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                data = json.load(r)
+            data = json.loads(net.get(f"https://api.github.com/repos/{repo}/releases/latest", 256 * 1024,
+                                      {"Accept": "application/vnd.github+json"}))
             tag, url = str(data.get("tag_name", "")), str(data.get("html_url", ""))
             if url.startswith("https://github.com/") and version_tuple(tag) > version_tuple(VERSION):
                 self.found.emit(tag, url)  # queued to the GUI thread
-        except Exception:
-            pass  # offline / no releases / rate limited: stay silent
+        except Exception:  # nosec B110 - offline / no releases / rate limited: the check stays silent on purpose
+            pass

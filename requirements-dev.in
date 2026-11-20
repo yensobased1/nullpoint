@@ -1,0 +1,9 @@
+# Build / audit / test tools. requirements-dev.txt is generated from this file with exact versions and hashes:
+#   .venv\Scripts\pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements-dev.txt requirements-dev.in
+-c requirements.txt
+pyinstaller==6.22.3
+pip-audit==2.10.1
+bandit==1.9.4
+detect-secrets==1.5.0
+hypothesis==6.170.17
+pip-tools==7.7.0

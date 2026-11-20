@@ -779,7 +779,7 @@ class EditorTab(QWidget):
         if not path:
             return
         try:
-            img = safe_image.load(path)
+            img = safe_image.load(path, allow_unc=True)  # picked in a file dialog
         except safe_image.ImageError as e:
             self.say(self.tr(str(e)), True)
             return
@@ -807,7 +807,7 @@ class EditorTab(QWidget):
         if not path:
             return
         try:
-            img = safe_image.load(path)
+            img = safe_image.load(path, allow_unc=True)  # picked in a file dialog
         except safe_image.ImageError as e:
             self.say(self.tr(str(e)), True)
             return

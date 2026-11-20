@@ -28,12 +28,12 @@ def is_valorant(text):
 
 def parse(text):
     """Code -> {section: {key: raw value}}. Raises ShareCodeError with a clear message."""
+    if len(text or "") > 2000:  # before any parsing work
+        raise ShareCodeError("That code is too long to be a VALORANT crosshair code.")
     tokens = [t.strip() for t in re.sub(r"\s+", "", text or "").split(";")]
     tokens = [t for t in tokens if t != ""]
     if not tokens or tokens[0] != "0":
         raise ShareCodeError("Not a VALORANT crosshair code (it must start with 0;).")
-    if len(text) > 2000:
-        raise ShareCodeError("That code is too long to be a VALORANT crosshair code.")
     sections, cur, i = {}, "0", 1
     while i < len(tokens):
         tok = tokens[i]

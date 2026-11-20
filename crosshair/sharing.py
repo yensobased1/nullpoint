@@ -5,13 +5,13 @@ import re
 import sys
 import threading
 import time
-import urllib.request
 import winreg
 from urllib.parse import unquote
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 
+import net
 import overlay
 import cs2
 import valorant
@@ -224,9 +224,7 @@ class Gallery(QObject):
 
     def _run(self):
         try:
-            req = urllib.request.Request(GALLERY_URL, headers={"User-Agent": "Nullpoint-gallery"})
-            with urllib.request.urlopen(req, timeout=6) as r:
-                data = json.loads(r.read(1_000_000).decode("utf-8"))
+            data = json.loads(net.get(GALLERY_URL, 1_000_000).decode("utf-8"))
             entries = self.clean(data.get("entries") if isinstance(data, dict) else None)
             try:
                 with open(self.cache_path, "w", encoding="utf-8") as f:

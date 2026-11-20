@@ -4,7 +4,7 @@ The app draws with "Source" composition (fill replaces the outline under it). SV
 here is the renderer's shape minus whatever is drawn on top of it: the file looks the same as the overlay.
 """
 import base64
-from xml.sax.saxutils import quoteattr
+from xml.sax.saxutils import quoteattr  # nosec B406 - only escapes our own output, parses nothing
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
 from PySide6.QtGui import QPainterPath

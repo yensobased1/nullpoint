@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (echo Run setup.bat first. & pause & exit /b 1)
 call .venv\Scripts\activate.bat
-pip install pyinstaller || (pause & exit /b 1)
+pip install --require-hashes -r requirements.txt -r requirements-dev.txt || (pause & exit /b 1)
 pyinstaller --noconfirm --onefile --noconsole --name Nullpoint --icon assets\nullpoint.ico ^
   --add-data "crosshair\lang;lang" --add-data "assets;assets" --add-data "CHANGELOG.md;." crosshair\main.py
 echo.

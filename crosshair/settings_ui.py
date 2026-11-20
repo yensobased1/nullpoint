@@ -50,6 +50,7 @@ LINE_STYLES = [("solid", "Solid"), ("dashed", "Dashed"), ("dotted", "Dotted")]
 DOT_SHAPES = [("square", "Square"), ("circle", "Circle"), ("diamond", "Diamond")]
 HALO_MODES = [("shadow", "Shadow"), ("glow", "Glow")]
 ARMS = [("t", "Top"), ("r", "Right"), ("b", "Bottom"), ("l", "Left")]
+MAX_BACKUP = 50 * 1024 * 1024  # a full backup embeds custom images, so it may be bigger than a config
 # Colorblind-friendly palettes: main color + outline color. Applying changes colors only.
 COLORBLIND = [("Protanopia", "00FFFF", "000000"), ("Deuteranopia", "FFFF00", "000000"),
               ("Tritanopia", "FF4D8D", "000000"), ("High contrast", "FFFFFF", "000000")]
@@ -995,7 +996,7 @@ class SettingsWindow(QWidget):
         for n in names[:200]:
             path = os.path.join(folder, n)
             try:
-                safe_image.load(path)  # size / bomb checks before we keep a copy
+                safe_image.load(path, allow_unc=True)  # size / bomb checks before we keep a copy (folder picked by you)
                 with open(path, "rb") as f:
                     copy_path = packfile.store_image(f.read(), "png", library.CUSTOM_DIR)
             except (OSError, ValueError):
@@ -1382,14 +1383,20 @@ class SettingsWindow(QWidget):
     def _import_image(self):
         path, _ = QFileDialog.getOpenFileName(self, tr("Import from image"), "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
         if path:
-            self.import_qr_image(QImage(path))
+            try:
+                self.import_qr_image(safe_image.load(path, allow_unc=True))
+            except safe_image.ImageError as e:
+                self.say(tr(str(e)), True)
 
     def _paste_image(self):
         img = QGuiApplication.clipboard().image()
         if img.isNull():
             self.say(tr("The clipboard has no image."), True)
-        else:
-            self.import_qr_image(img)
+            return
+        try:
+            self.import_qr_image(safe_image.checked(img))
+        except safe_image.ImageError as e:
+            self.say(tr(str(e)), True)
 
     def dragEnterEvent(self, e):
         md = e.mimeData()
@@ -1419,7 +1426,7 @@ class SettingsWindow(QWidget):
                     name, cross, img, img_ext = packfile.load(f.read())
                 self.confirm_import(export_code(cross), os.path.basename(path), img, img_ext, name)
             elif ext in (".png", ".gif", ".svg", ".jpg", ".jpeg", ".bmp"):
-                img = safe_image.load(path)
+                img = safe_image.load(path, allow_unc=True)  # dropped by you
                 code = None
                 if ext != ".svg":
                     try:
@@ -1676,6 +1683,8 @@ class SettingsWindow(QWidget):
         if not path:
             return
         try:
+            if os.path.getsize(path) > MAX_BACKUP:
+                raise ValueError(tr("That backup file is too big (max 50 MB)."))
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict) or data.get("format") not in ("nullpoint-export", "crosshair-overlay-export") \
@@ -1698,24 +1707,9 @@ class SettingsWindow(QWidget):
         # Embedded images -> custom\imported\, then point profiles/library at the new copies.
         moved = {}
         out_dir = os.path.join(library.CUSTOM_DIR, "imported")
-        for old, b64 in images.items():
-            try:
-                raw = base64.b64decode(b64, validate=True)
-            except (ValueError, TypeError):
-                continue
-            name = os.path.basename(str(old)) or "image.png"
-            if os.path.splitext(name)[1].lower() not in (".png", ".gif", ".svg"):
-                continue  # only image files, never anything runnable
-            os.makedirs(out_dir, exist_ok=True)
-            new = os.path.join(out_dir, name)
-            stem, ext = os.path.splitext(new)
-            n = 2
-            while os.path.exists(new):
-                new, n = f"{stem}_{n}{ext}", n + 1
-            with open(new, "wb") as f:
-                f.write(raw)
-            moved[old] = new
+        moved = packfile.import_images(images, out_dir)
         new_cfg = config.normalize(data["config"])
+        new_cfg["update_repo"] = self.cfg["update_repo"]  # a backup file must never change where updates come from
         for p in new_cfg["profiles"].values():
             p["png_path"] = moved.get(p["png_path"], p["png_path"])
         entries = library.clean(lib)

@@ -60,6 +60,23 @@ def load(raw):
     return name.strip()[:60] or "Crosshair", cross, img, ext
 
 
+def import_images(images, folder, limit=500):
+    """Backup file {original path: base64} -> {original path: our copy}. Only png / gif / svg that pass the image
+    checks are kept, and every copy gets a fresh name inside folder (names in the file are never used)."""
+    moved = {}
+    for old, b64 in list(images.items())[:limit] if isinstance(images, dict) else []:
+        ext = os.path.splitext(str(old))[1].lower().lstrip(".")
+        if ext not in IMAGE_EXTS or not isinstance(b64, str):
+            continue  # only image files, never anything runnable
+        try:
+            raw = base64.b64decode(b64, validate=True)
+            safe_image.load_bytes(raw)  # bombs, huge sizes, unsafe SVGs
+            moved[old] = store_image(raw, ext, folder)
+        except (ValueError, TypeError, OSError):
+            continue
+    return moved
+
+
 def store_image(img, ext, folder):
     """Save imported image bytes into our own folder under a fresh name (never a name from the file)."""
     os.makedirs(folder, exist_ok=True)

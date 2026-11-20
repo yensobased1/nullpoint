@@ -42,7 +42,7 @@ class StreamServer:
                                   "name": True}}
         self.lock = threading.Lock()
         self.httpd = None
-        self.token = ""
+        self.token = ""  # nosec B105 - not a password: set by start() to the page's random URL token
 
     def publish(self, code, png, name="", qr=b"", options=None):
         with self.lock:

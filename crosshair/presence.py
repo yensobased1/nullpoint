@@ -43,5 +43,5 @@ class Presence:
         try:
             if rpc:
                 rpc.close()
-        except Exception:
+        except Exception:  # nosec B110 - closing a dead Discord connection: nothing left to do
             pass
