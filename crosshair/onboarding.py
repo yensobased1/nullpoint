@@ -153,15 +153,17 @@ class Wizard(QDialog):
 
         p1 = QListWidget()
         p1.setAccessibleName(tr("Games"))
-        for exe, prof in sorted(cfg["games"].items(), key=lambda x: x[1]):
-            it = QListWidgetItem(f"{prof}  ({exe})")
+        from config import BUILTIN_GAMES
+        name = lambda exe: cfg["games"][exe] or BUILTIN_GAMES.get(exe) or exe
+        for exe in sorted(cfg["games"], key=name):
+            it = QListWidgetItem(f"{name(exe)}  ({exe})")
             it.setData(Qt.UserRole, exe)
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked)
             p1.addItem(it)
         self.games = p1
         self.pages.addWidget(self._page(tr("1 / 3  Which games do you play?"),
-                                        tr("Nullpoint switches to each game's own crosshair when you focus it."), p1))
+                                        tr("Nullpoint centers the crosshair on these games' windows while you play."), p1))
         grid = QGridLayout()
         self.preset_buttons = []
         for i, (name, cross) in enumerate(PRESETS):

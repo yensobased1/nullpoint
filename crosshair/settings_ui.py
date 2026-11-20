@@ -150,6 +150,14 @@ class SettingsWindow(QWidget):
         self.mode_box.currentIndexChanged.connect(self._pick_mode)
         top.addWidget(QLabel(tr("Profile")))
         top.addWidget(self.profile_box, 1)
+        for text, tip, fn in (("+", "New profile...", self._new_profile), ("✎", "Rename profile...", self._rename_profile),
+                              ("✕", "Delete profile", self._delete_profile)):
+            b = QPushButton(text)
+            b.setFixedWidth(26)
+            b.setToolTip(tr(tip))
+            b.setAccessibleName(tr(tip))
+            b.clicked.connect(fn)
+            top.addWidget(b)
         top.addWidget(QLabel(tr("Mode")))
         top.addWidget(self.mode_box, 1)
         left.addLayout(top)
@@ -668,10 +676,12 @@ class SettingsWindow(QWidget):
     def _games_tab(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.addWidget(QLabel(tr("When one of these programs is focused, its profile is used. "
-                                "Anything else uses the Default profile.")))
-        self.games_table = QTableWidget(0, 2)
-        self.games_table.setHorizontalHeaderLabels([tr("Process"), tr("Profile")])
+        note = QLabel(tr("While one of these games is focused, the crosshair is centered on its window. "
+                         "A game can switch to a profile of its own, and an offset fixes games whose crosshair isn't centered."))
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        self.games_table = QTableWidget(0, 3)
+        self.games_table.setHorizontalHeaderLabels([tr("Process"), tr("Profile"), tr("Offset")])
         self.games_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.games_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.games_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -679,8 +689,8 @@ class SettingsWindow(QWidget):
         lay.addWidget(self.games_table)
         row = QHBoxLayout()
         for text, fn in (("Browse .exe...", self._add_game_browse), ("Type name...", self._add_game_name),
-                         ("Remove", self._remove_game), ("Rename profile...", self._rename_profile),
-                         ("Copy to...", self._copy_to)):
+                         ("Remove", self._remove_game), ("Profile...", self._game_profile),
+                         ("Offset...", self._game_offset), ("Copy to...", self._copy_to)):
             b = QPushButton(tr(text))
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -1585,7 +1595,9 @@ class SettingsWindow(QWidget):
             r = self.games_table.rowCount()
             self.games_table.insertRow(r)
             self.games_table.setItem(r, 0, QTableWidgetItem(exe))
-            self.games_table.setItem(r, 1, QTableWidgetItem(prof))
+            self.games_table.setItem(r, 1, QTableWidgetItem(prof or tr("(profile you picked)")))
+            ox, oy = self.cfg["game_offsets"].get(exe, (0, 0))
+            self.games_table.setItem(r, 2, QTableWidgetItem(f"{ox:+d}, {oy:+d}" if ox or oy else "-"))
         self.loading = False
         self.update_display_info()
         self.preview.update()
@@ -1687,7 +1699,7 @@ class SettingsWindow(QWidget):
             lst.addItem(it)
         lay.addWidget(lst)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(tr("Create profiles"))
+        bb.button(QDialogButtonBox.Ok).setText(tr("Add games"))
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         lay.addWidget(bb)
@@ -1697,16 +1709,11 @@ class SettingsWindow(QWidget):
         for i, g in enumerate(found):
             if lst.item(i).checkState() != Qt.Checked:
                 continue
-            name = g["name"]
-            n = 2
-            while name in self.cfg["profiles"] and self.cfg["games"].get(g["exe"]) != name:
-                name, n = f'{g["name"]} {n}', n + 1
-            self.cfg["profiles"].setdefault(name, copy.deepcopy(self.cfg["profiles"]["Default"]))
-            self.cfg["games"][g["exe"]] = name
-            made.append(name)
+            self.cfg["games"].setdefault(g["exe"], "")
+            made.append(g["name"])
         self.on_change("general")
         self.refresh()
-        self.say(f"{tr('Profiles created')}: {', '.join(made)}" if made else tr("Nothing selected."))
+        self.say(f"{tr('Games added')}: {', '.join(made)}" if made else tr("Nothing selected."))
 
     # ---------- resolution variants ----------
     def _load_variants(self):
@@ -1828,16 +1835,104 @@ class SettingsWindow(QWidget):
             return
         if not exe.endswith(".exe"):
             exe += ".exe"
-        default = self.cfg["games"].get(exe) or os.path.splitext(exe)[0].split("-")[0].capitalize()
-        name, ok = QInputDialog.getText(self, tr("Profile"), f"{tr('Profile name for')} {exe}\n"
-                                        + tr("(existing name = share that profile):"), text=default)
-        name = name.strip()
-        if not ok or not name:
+        name = self._ask_game_profile(exe)
+        if name is None:
             return
-        if name not in self.cfg["profiles"]:
-            self.cfg["profiles"][name] = copy.deepcopy(config.DEFAULT_PROFILE)
         self.cfg["games"][exe] = name
         self.on_change("general")
+        self.refresh()
+
+    def _ask_game_profile(self, exe):
+        """-> profile name for this game ("" = none: keep the profile you picked), or None if cancelled.
+        Typing a new name creates that profile (a copy of the current one)."""
+        none = tr("(profile you picked)")
+        items = [none] + sorted(self.cfg["profiles"])
+        cur = self.cfg["games"].get(exe) or none
+        name, ok = QInputDialog.getItem(self, tr("Profile"), f"{tr('Profile for')} {exe}\n"
+                                        + tr("(type a new name to create a profile):"), items, items.index(cur)
+                                        if cur in items else 0, True)
+        name = name.strip()[:60]
+        if not ok or not name:
+            return None
+        if name == none:
+            return ""
+        if name not in self.cfg["profiles"]:
+            self.cfg["profiles"][name] = copy.deepcopy(self.profile())
+        return name
+
+    def _selected_game(self):
+        row = self.games_table.currentRow()
+        if row < 0:
+            self.say(tr("Pick a game in the list first."), True)
+            return None
+        return self.games_table.item(row, 0).text()
+
+    def _game_profile(self):
+        exe = self._selected_game()
+        if exe:
+            name = self._ask_game_profile(exe)
+            if name is not None:
+                self.cfg["games"][exe] = name
+                self.on_change("general")
+                self.refresh()
+
+    def _game_offset(self):
+        exe = self._selected_game()
+        if not exe:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{tr('Offset')}: {exe}")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(tr("Moves the crosshair while this game is focused, for games whose own crosshair "
+                              "isn't at the center of the window.")))
+        spins = []
+        for label, v in zip(("Offset X px", "Offset Y px"), self.cfg["game_offsets"].get(exe, (0, 0))):
+            sp = QSpinBox()
+            sp.setRange(-500, 500)
+            sp.setValue(v)
+            form.addRow(tr(label), sp)
+            spins.append(sp)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        x, y = spins[0].value(), spins[1].value()
+        if x or y:
+            self.cfg["game_offsets"][exe] = [x, y]
+        else:
+            self.cfg["game_offsets"].pop(exe, None)
+        self.on_change("general")
+        self.refresh()
+
+    def _new_profile(self):
+        name, ok = QInputDialog.getText(self, tr("New profile..."), tr("Name:"))
+        name = name.strip()[:60]
+        if not ok or not name:
+            return
+        if name in self.cfg["profiles"]:
+            self.say(tr("A profile with that name already exists."), True)
+            return
+        self.cfg["profiles"][name] = copy.deepcopy(self.profile())  # start from what you have now
+        self.cfg["active_profile"] = name
+        self.on_change("profile")
+        self.refresh()
+        self.say(f"{tr('Profile created')}: {name}")
+
+    def _delete_profile(self):
+        name = self.cfg["active_profile"]
+        if name == "Default":
+            self.say(tr("The Default profile can't be deleted."), True)
+            return
+        if QMessageBox.question(self, tr("Delete profile"), f"{tr('Delete profile')} '{name}'?") != QMessageBox.Yes:
+            return
+        self.record()
+        del self.cfg["profiles"][name]
+        self.cfg["games"] = {e: ("" if p == name else p) for e, p in self.cfg["games"].items()}
+        self.cfg["rules"] = config.clean_rules(self.cfg["rules"], self.cfg["profiles"])
+        self.cfg["active_profile"] = "Default"
+        self.on_change("profile")
         self.refresh()
 
     def _add_game_browse(self):
@@ -1854,7 +1949,9 @@ class SettingsWindow(QWidget):
         row = self.games_table.currentRow()
         if row >= 0:
             # Profile is kept (it may hold a crosshair you want); only the game link is removed.
-            self.cfg["games"].pop(self.games_table.item(row, 0).text(), None)
+            exe = self.games_table.item(row, 0).text()
+            self.cfg["games"].pop(exe, None)
+            self.cfg["game_offsets"].pop(exe, None)
             self.on_change("general")
             self.refresh()
 
@@ -1905,7 +2002,10 @@ class SettingsWindow(QWidget):
             return
         self.cfg["profiles"][new] = self.cfg["profiles"].pop(old)
         self.cfg["games"] = {exe: (new if p == old else p) for exe, p in self.cfg["games"].items()}
+        for r in self.cfg["rules"]:
+            r["profile"] = new if r["profile"] == old else r["profile"]
         self.cfg["active_profile"] = new
+        self.app.manual_profile = new
         self.on_change("general")
         self.refresh()
 

@@ -55,7 +55,8 @@ MAX_VARIANTS = 8
 MAX_RULES = 50
 RULE_MATCH = ("contains", "exact", "regex")
 
-# Built-in games: process name (lowercase) -> profile. javaw.exe also needs "minecraft" in the title.
+# Built-in games: process name (lowercase) -> display name. Detected as games (crosshair centered on their window,
+# shown when "only in games" is on) without a profile of their own. javaw.exe also needs "minecraft" in the title.
 BUILTIN_GAMES = {
     "fortniteclient-win64-shipping.exe": "Fortnite",
     "valorant-win64-shipping.exe": "VALORANT",
@@ -68,11 +69,13 @@ BUILTIN_GAMES = {
     "minecraft.windows.exe": "Minecraft",
     "cod.exe": "Call of Duty",
 }
-GAMES_VERSION = 2  # bump when BUILTIN_GAMES grows so old configs pick up new games
+GAMES_VERSION = 3  # bump when BUILTIN_GAMES grows so old configs pick up new games
+MAX_GAMES = 200
 
 DEFAULT_CONFIG = {
-    "profiles": {name: DEFAULT_PROFILE for name in ["Default", *BUILTIN_GAMES.values()]},
-    "games": dict(BUILTIN_GAMES),
+    "profiles": {"Default": DEFAULT_PROFILE},
+    "games": dict.fromkeys(BUILTIN_GAMES, ""),  # exe -> profile name, "" = keep the profile you picked
+    "game_offsets": {},  # exe -> [x, y] px added while that game is focused (games whose crosshair isn't centered)
     "games_version": GAMES_VERSION,
     "active_profile": "Default",
     "visible": True,
@@ -157,7 +160,15 @@ def fix_profiles(cfg):
     cfg["profiles"].setdefault("Default", copy.deepcopy(DEFAULT_PROFILE))
     if cfg["active_profile"] not in cfg["profiles"]:
         cfg["active_profile"] = "Default"
-    cfg["games"] = {str(k).lower(): v for k, v in cfg["games"].items() if v in cfg["profiles"]}
+    games = cfg["games"] if isinstance(cfg["games"], dict) else {}
+    cfg["games"] = {str(k).lower()[:100]: (v if v in cfg["profiles"] else "") for k, v in list(games.items())[:MAX_GAMES]}
+    offs = cfg["game_offsets"] if isinstance(cfg["game_offsets"], dict) else {}
+    cfg["game_offsets"] = {}
+    for k, v in list(offs.items())[:MAX_GAMES]:
+        if isinstance(v, list) and len(v) == 2 and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in v):
+            x, y = (min(max(round(n), -500), 500) for n in v)
+            if x or y:
+                cfg["game_offsets"][str(k).lower()[:100]] = [x, y]
     cfg["rules"] = clean_rules(cfg.get("rules"), cfg["profiles"])
     cfg["startup_delay"] = min(max(int(cfg["startup_delay"]), 0), 120)
     if cfg["hdr"].get("mode") not in ("Off", "Manual", "Auto"):
@@ -229,7 +240,7 @@ def load():
         return fix_profiles(copy.deepcopy(DEFAULT_CONFIG))
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return normalize(json.load(f))
+            return normalize(json.load(f), keep_old_profiles=True)
     except Exception:
         backup = CONFIG_PATH + time.strftime(".corrupt-%Y%m%d-%H%M%S.bak")
         try:
@@ -239,20 +250,44 @@ def load():
         return fix_profiles(copy.deepcopy(DEFAULT_CONFIG))
 
 
-def normalize(data):
-    """Any parsed config (file or import) -> complete valid config. Raises on hopeless input."""
+def normalize(data, keep_old_profiles=False):
+    """Any parsed config (file or import) -> complete valid config. Raises on hopeless input.
+    keep_old_profiles: when upgrading from before 2.2, save removed game profiles' crosshairs to the library."""
     if not isinstance(data, dict):
         raise ValueError("config must be an object")
     # User's own profiles replace the default list instead of merging with it.
     cfg = merge({k: v for k, v in DEFAULT_CONFIG.items() if k not in ("profiles", "games")}, data)
     cfg.setdefault("profiles", {})
     cfg.setdefault("games", {})
-    if data.get("games_version", 1) < GAMES_VERSION:  # old config: add new built-in games once
-        for exe, prof in BUILTIN_GAMES.items():
-            cfg["games"].setdefault(exe, prof)
-            cfg["profiles"].setdefault(prof, copy.deepcopy(DEFAULT_PROFILE))
+    old = data.get("games_version", 1)
+    if old < GAMES_VERSION:  # old config: add new built-in games once (as games, not profiles)
+        for exe in BUILTIN_GAMES:
+            cfg["games"].setdefault(exe, "")
         cfg["games_version"] = GAMES_VERSION
-    return fix_profiles(cfg)
+    cfg = fix_profiles(cfg)
+    if old < 3:
+        drop_builtin_profiles(cfg, keep_old_profiles)
+    return cfg
+
+
+def drop_builtin_profiles(cfg, keep=False):
+    """2.2: games no longer get their own profile. The built-in game profiles (Fortnite, VALORANT, ...) are removed;
+    their games keep the profile you pick. keep: crosshairs that differ from Default go to the library first."""
+    old = []
+    for name in dict.fromkeys(BUILTIN_GAMES.values()):
+        p = cfg["profiles"].pop(name, None) if name != "Default" else None
+        if p is None:
+            continue
+        cfg["games"] = {e: ("" if v == name else v) for e, v in cfg["games"].items()}
+        if p["crosshair"] != cfg["profiles"]["Default"]["crosshair"]:
+            old.append({"name": f"{name} (old profile)", "crosshair": p["crosshair"], "image": p["png_path"],
+                        "tags": ["profile"], "fav": False})
+    if keep and old:
+        import library  # here, not at the top: library imports config
+        library.save(library.load() + old)
+    if cfg["active_profile"] not in cfg["profiles"]:
+        cfg["active_profile"] = "Default"
+    cfg["rules"] = clean_rules(cfg["rules"], cfg["profiles"])
 
 
 def save(cfg):

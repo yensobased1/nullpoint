@@ -135,7 +135,7 @@ def rule_matches(rule, exe, title):
 
 
 def match_game(games, exe, hwnd, rules=(), title=None):
-    """Profile name for this foreground window, or None if it isn't a known game.
+    """Profile name for this foreground window ("" = a game without its own profile), or None if it isn't a game.
     Rules (exe and/or title) are tested first, in order; then the plain process list."""
     if rules:
         title = window_title(hwnd) if title is None else title
@@ -144,6 +144,6 @@ def match_game(games, exe, hwnd, rules=(), title=None):
                 return rule["profile"]
     prof = games.get(exe)
     need = TITLE_REQUIRED.get(exe)
-    if prof and need and need not in window_title(hwnd).lower():
+    if prof is not None and need and need not in (window_title(hwnd) if title is None else title).lower():
         return None
     return prof

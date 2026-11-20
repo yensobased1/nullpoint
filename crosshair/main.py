@@ -88,6 +88,8 @@ class App:
         self.base_center = game_detect.monitor_center(None)
         self.last_hwnd = None
         self.last_target = None
+        self.game_exe = ""
+        self.manual_profile = self.cfg["active_profile"]  # your own pick; games without a profile keep it
         self.game_active = False
         self.warned_hwnd = None
         self.last_external = None  # (exe, title) of the last focused non-shell window, for "Add current game"
@@ -320,7 +322,8 @@ class App:
                 self.settings.update_display_info()
         if abs(self.stretch_factor() - self.ov.sx) > 1e-9:
             self.ov.set_crosshair(self.shown_cross(), p["png_path"], self.stretch_factor(), p["anim_paused"])
-        self.ov.set_center(cx + p["offset_x"], cy + p["offset_y"])
+        gx, gy = self.cfg["game_offsets"].get(self.game_exe, (0, 0)) if self.game_active else (0, 0)
+        self.ov.set_center(cx + p["offset_x"] + gx, cy + p["offset_y"] + gy)
         want = bool(self.align) or (self.cfg["visible"] and not self.held_hidden and not self.startup_hold
                                     and (self.game_active or not self.cfg["show_only_in_games"]))
         if want != self.ov.isVisible():
@@ -347,6 +350,8 @@ class App:
 
     def on_change(self, kind):
         if kind in ("crosshair", "profile"):
+            if kind == "profile":
+                self.manual_profile = self.cfg["active_profile"]
             self.apply()
         elif kind == "hotkeys":
             self.register_hotkeys()
@@ -446,7 +451,10 @@ class App:
         if hwnd != self.last_hwnd:
             self.last_hwnd = hwnd
             self.game_active = game_profile is not None
-            target = game_profile or "Default"
+            self.game_exe = exe if self.game_active else ""
+            if self.manual_profile not in self.cfg["profiles"]:
+                self.manual_profile = "Default"
+            target = game_profile or self.manual_profile
             if target != self.last_target:  # manual pick survives hopping between non-game apps
                 self.last_target = target
                 self.set_profile(target)
@@ -585,29 +593,18 @@ class App:
         self.settings.activateWindow()
 
     def add_current_game(self):
-        """Map the last focused program to a new profile (copy of Default) named after its window."""
+        """Add the last focused program as a game: Settings asks which profile it uses (or none)."""
         if not self.last_external:
             self.notify(tr("Focus the game first, then use Add current game."))
             return
-        exe, title = self.last_external
-        if exe in self.cfg["games"]:
-            self.notify(f"{exe}: {tr('already uses profile')} '{self.cfg['games'][exe]}'.")
-            return
-        base = re.sub(r"[\x00-\x1f]", "", title).strip()[:40] or os.path.splitext(exe)[0]
-        name, n = base, 2
-        while name in self.cfg["profiles"]:
-            name, n = f"{base} ({n})", n + 1
-        self.cfg["profiles"][name] = copy.deepcopy(self.cfg["profiles"]["Default"])
-        self.cfg["games"][exe] = name
-        self.on_change("general")
-        if self.settings:
-            self.settings.refresh()
-        self.notify(f"{tr('Added')} {exe}: '{name}'. {tr('Rename it in Settings > Games & Display.')}")
+        self.open_settings()
+        self.settings._add_game(self.last_external[0])
 
     def fill_profile_menu(self):
         self.profile_menu.clear()
         for name in sorted(self.cfg["profiles"], key=lambda n: (n != "Default", n.lower())):
-            a = self.profile_menu.addAction(name, lambda n=name: self.set_profile(n))
+            a = self.profile_menu.addAction(name, lambda n=name: (self.set_profile(n),
+                                                                  setattr(self, "manual_profile", n)))
             a.setCheckable(True)
             a.setChecked(name == self.cfg["active_profile"])
 

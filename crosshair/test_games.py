@@ -90,6 +90,37 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(cfg["rules"], [])
 
 
+class ProfileMigrationTests(unittest.TestCase):
+    def test_builtin_game_profiles_removed_games_kept(self):
+        changed = copy.deepcopy(config.DEFAULT_PROFILE)
+        changed["crosshair"] = dict(copy.deepcopy(DEFAULT_CROSSHAIR), color="FF0000")
+        old = {"games_version": 2, "active_profile": "VALORANT",
+               "profiles": {"Default": {}, "VALORANT": changed, "Fortnite": {}, "Mine": {}},
+               "games": {"valorant-win64-shipping.exe": "VALORANT", "my.exe": "Mine"},
+               "rules": [{"exe": "x.exe", "profile": "Fortnite"}],
+               "game_offsets": {"cs2.exe": [3, -2], "bad": "x", "zero.exe": [0, 0]}}
+        cfg = config.normalize(old)
+        self.assertEqual(sorted(cfg["profiles"]), ["Default", "Mine"])
+        self.assertEqual(cfg["active_profile"], "Default")
+        self.assertEqual(cfg["games"]["valorant-win64-shipping.exe"], "")
+        self.assertEqual(cfg["games"]["my.exe"], "Mine")  # your own profiles stay linked
+        self.assertIn("cs2.exe", cfg["games"])
+        self.assertEqual(cfg["rules"], [])
+        self.assertEqual(cfg["game_offsets"], {"cs2.exe": [3, -2]})
+        again = config.normalize(cfg)  # already migrated: nothing else removed
+        self.assertEqual(sorted(again["profiles"]), ["Default", "Mine"])
+
+    def test_new_config_has_only_default(self):
+        cfg = config.normalize({})
+        self.assertEqual(list(cfg["profiles"]), ["Default"])
+        self.assertEqual(set(cfg["games"].values()), {""})
+
+    def test_game_without_profile_still_counts_as_game(self):
+        self.assertEqual(game_detect.match_game({"cs2.exe": ""}, "cs2.exe", None, (), "x"), "")
+        self.assertIsNone(game_detect.match_game({"javaw.exe": ""}, "javaw.exe", None, (), "Other java app"))
+        self.assertEqual(game_detect.match_game({"javaw.exe": ""}, "javaw.exe", None, (), "Minecraft 1.21"), "")
+
+
 class HdrTests(unittest.TestCase):
     def test_boost(self):
         c = copy.deepcopy(DEFAULT_CROSSHAIR)
