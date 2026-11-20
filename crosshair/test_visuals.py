@@ -119,6 +119,24 @@ class ShapeTests(unittest.TestCase):
         self.assertEqual(ov.spread, 0)
 
 
+class RainbowTests(unittest.TestCase):
+    def test_rainbow_animates_in_preview_even_when_overlay_hidden(self):
+        ov = overlay.Overlay()
+        ov.set_crosshair(cross(rainbow={"on": True, "speed": 5}), "")
+        self.assertFalse(ov.isVisible())
+        self.assertFalse(ov.timer.isActive())  # hidden and no preview: no work
+        ov.preview_active = True
+        ov._update_timer()
+        self.assertTrue(ov.timer.isActive())
+        hue = ov.hue
+        ov._tick()
+        self.assertNotEqual(ov.hue, hue)  # colors move
+        ov.reduce_motion = True
+        ov._update_timer()
+        self.assertFalse(ov.timer.isActive())  # Reduce motion stops it on purpose
+        self.assertIsNone(ov.hue)
+
+
 class SvgTests(unittest.TestCase):
     def test_svg_is_vector_and_matches_parts(self):
         cr = copy.deepcopy(DEFAULT_CROSSHAIR)

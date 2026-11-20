@@ -394,6 +394,8 @@
  "Quick switcher hotkey": "اختصار التبديل السريع",
  "Radius": "نصف القطر",
  "Rainbow": "قوس قزح",
+ "Rainbow is paused: Reduce motion is on (App Settings).": "قوس قزح متوقف: تقليل الحركة مفعّل (إعدادات التطبيق).",
+ "Rainbow is paused: low-power mode is on (on battery, App Settings).": "قوس قزح متوقف: وضع توفير الطاقة مفعّل (على البطارية، إعدادات التطبيق).",
  "Rainbow saturation": "تشبع قوس قزح",
  "Rainbow speed": "سرعة قوس قزح",
  "Recent crosshairs": "علامات التصويب الأخيرة",

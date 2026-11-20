@@ -394,6 +394,8 @@
  "Quick switcher hotkey": "Клавиша быстрой смены",
  "Radius": "Радиус",
  "Rainbow": "Радуга",
+ "Rainbow is paused: Reduce motion is on (App Settings).": "Радуга на паузе: включено «Меньше движения» (Настройки приложения).",
+ "Rainbow is paused: low-power mode is on (on battery, App Settings).": "Радуга на паузе: включён режим энергосбережения (от батареи, Настройки приложения).",
  "Rainbow saturation": "Насыщенность радуги",
  "Rainbow speed": "Скорость радуги",
  "Recent crosshairs": "Недавние прицелы",

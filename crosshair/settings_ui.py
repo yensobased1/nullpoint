@@ -581,7 +581,19 @@ class SettingsWindow(QWidget):
         tip = self.add_hex(f, "Gradient tip color", "gradient", "c2")
         speed = self.add_slider(f, "Rainbow speed", "rainbow", "speed")
         sat = self.add_slider(f, "Rainbow saturation", "rainbow", "sat", dec=2)
+        paused = QLabel()
+        paused.setWordWrap(True)
+        paused.setStyleSheet(f"color: {theme.tokens['danger']};")
+        f.addRow(paused)
         rainbow = lambda: self.target("rainbow")["on"]
+
+        def paused_note(f=f):
+            why = tr("Rainbow is paused: Reduce motion is on (App Settings).") if self.cfg["reduce_motion"] else \
+                tr("Rainbow is paused: low-power mode is on (on battery, App Settings).") if self.ov.low_power else ""
+            paused.setText(why)
+            f.setRowVisible(paused, rainbow() and bool(why))
+
+        self.rules.append(paused_note)
         self.rules += [lambda f=f: f.setRowVisible(tip, self.target("gradient")["on"] and not rainbow()),
                        lambda f=f: f.setRowVisible(speed, rainbow()), lambda f=f: f.setRowVisible(sat, rainbow())]
         cb = QGridLayout()
@@ -1937,7 +1949,7 @@ class SettingsWindow(QWidget):
         rm = QCheckBox(tr("Reduce motion"))
         rm.setChecked(self.cfg["reduce_motion"])
         rm.setToolTip(tr("Turns off rainbow, GIF playback (first frame only) and the fire expand animation."))
-        rm.toggled.connect(lambda v: self._set_cfg("reduce_motion", v, "motion"))
+        rm.toggled.connect(lambda v: (self._set_cfg("reduce_motion", v, "motion"), self.update_visibility()))
         f.addRow(rm)
         row = QHBoxLayout()
         pic = QLabel()
@@ -2540,6 +2552,16 @@ class SettingsWindow(QWidget):
             set_startup(on)
         except OSError as e:
             self.say(f"{tr('Could not change startup setting')}: {e}", True)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self.ov.preview_active = True  # rainbow / GIF preview animates even when no game is focused
+        self.ov._update_timer()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self.ov.preview_active = False
+        self.ov._update_timer()
 
     def closeEvent(self, e):
         e.ignore()

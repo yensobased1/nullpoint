@@ -394,6 +394,8 @@
  "Quick switcher hotkey": "快速切换快捷键",
  "Radius": "半径",
  "Rainbow": "彩虹",
+ "Rainbow is paused: Reduce motion is on (App Settings).": "彩虹已暂停:已开启“减少动态效果”(应用设置)。",
+ "Rainbow is paused: low-power mode is on (on battery, App Settings).": "彩虹已暂停:已开启低功耗模式(使用电池,应用设置)。",
  "Rainbow saturation": "彩虹饱和度",
  "Rainbow speed": "彩虹速度",
  "Recent crosshairs": "最近使用的准星",

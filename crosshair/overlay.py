@@ -489,6 +489,7 @@ class Overlay(QWidget):
         self.paused = False
         self.low_power = False  # set by the app: pauses rainbow / GIF animation
         self.reduce_motion = False  # set by the app: no rainbow, first GIF frame only, instant fire expand
+        self.preview_active = False  # the settings preview is open: animate even while the overlay itself is hidden
         self.spread = 0.0  # current fire-expand px
         self.firing = False
         self._fire_from, self._fire_t0 = 0.0, 0.0
@@ -551,8 +552,8 @@ class Overlay(QWidget):
 
     def _gif_frame(self, _):
         now = time.monotonic()
-        if (now - self._last_frame) * 1000 < FRAME_MS or not self.isVisible() or self.low_power \
-                or self.reduce_motion:
+        if (now - self._last_frame) * 1000 < FRAME_MS or not (self.isVisible() or self.preview_active) \
+                or self.low_power or self.reduce_motion:
             return  # cap at ~15 fps and skip work while hidden
         self._last_frame = now
         self.pixmap = transform_image(self.movie.currentImage(), self.cross["png"])
@@ -560,7 +561,7 @@ class Overlay(QWidget):
         self.frame.emit()
 
     def _update_timer(self):
-        want = self.isVisible() and self.cross is not None and self.cross["mode"] != "png" \
+        want = (self.isVisible() or self.preview_active) and self.cross is not None and self.cross["mode"] != "png" \
             and self.cross["rainbow"]["on"] and not self.low_power and not self.reduce_motion
         self.hue = (self.hue or 0.0) if want else None
         if want and not self.timer.isActive():

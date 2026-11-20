@@ -394,6 +394,8 @@
  "Quick switcher hotkey": "クイック切り替えのホットキー",
  "Radius": "半径",
  "Rainbow": "レインボー",
+ "Rainbow is paused: Reduce motion is on (App Settings).": "レインボーは停止中: 「動きを減らす」がオンです(アプリ設定)。",
+ "Rainbow is paused: low-power mode is on (on battery, App Settings).": "レインボーは停止中: 省電力モードがオンです(バッテリー駆動、アプリ設定)。",
  "Rainbow saturation": "レインボーの彩度",
  "Rainbow speed": "レインボーの速さ",
  "Recent crosshairs": "最近のクロスヘア",
