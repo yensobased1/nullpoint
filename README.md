@@ -9,7 +9,7 @@
 - **Text crosshairs**: any 1-3 characters (+ • × ◆) in any font
 - **Image crosshairs**: PNG, animated GIF and SVG, with scale/opacity/rotation
 - **Pixel editor**: 16/32/64 grid, shape tools, mirror, layers, animation frames with onion skin; save as PNG or animated GIF
-- **Games**: detected automatically (crosshair centered on the game window, shown only in games if you like); your own named profiles, optional per-game profile / offset, title rules, resolution variants
+- **Games**: detected automatically (crosshair centered on the game window, shown only in games and hidden in lobbies / menus if you like); your own named profiles, optional per-game profile / offset, title rules, resolution variants
 - **True centering**: centers on the game window (windowed / borderless / stretched / multi-monitor) with X/Y fine-tune
 - **Share codes**: copy/paste a short code, QR, share card PNG, `nullpoint://import/...` links, import from a QR screenshot
 - **Import VALORANT and CS2 / CS:GO codes** (e.g. from [vcrdb.net](https://www.vcrdb.net/), or `CSGO-...` share codes):

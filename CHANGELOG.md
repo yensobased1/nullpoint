@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.2.1
+- **Hide in lobby and menus** (Settings > App Settings, off by default): the crosshair hides while the game shows
+  your mouse cursor (lobby, menus, inventory) and comes back when you aim. Only asks Windows whether the cursor is
+  shown; nothing is read from the game. Games that draw their own menu cursor may not be detected.
+
 ## v2.2.0
 **Crosshair**
 - Per-arm lengths and colors ("Link all arms" off), round / diamond center dots, a colored **glow**, **fire expand**

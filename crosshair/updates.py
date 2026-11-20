@@ -19,7 +19,7 @@ from PySide6.QtCore import QObject, Signal
 
 import net
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 REPO_RE = re.compile(r"[\w.-]+/[\w.-]+")
 INSTALLER_RE = re.compile(r"Nullpoint-Setup-\d+\.\d+\.\d+\.exe")
 MAX_INSTALLER = 150 * 1024 * 1024
