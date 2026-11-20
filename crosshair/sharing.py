@@ -127,6 +127,33 @@ def share_card(cross, code, pixmap=None):
 
 
 # ---------- nullpoint:// links ----------
+def share_card_frames(cross, code, path, max_frames=100):
+    """Animated share card for a GIF crosshair: ([cards], [delays ms]). Decoded with the safe image limits."""
+    import safe_image
+    from PySide6.QtGui import QImageReader
+    safe_image.check_file(path)
+    reader = QImageReader(path)
+    safe_image.read_qimage(QImageReader(path))  # size / frame-count checks
+    frames, delays = [], []
+    while len(frames) < max_frames:
+        img = reader.read()
+        if img.isNull():
+            break
+        frames.append(share_card(cross, code, overlay.transform_image(img, cross["png"])))
+        delays.append(max(20, reader.nextImageDelay() or 100))
+        if not reader.canRead():
+            break
+    return frames, delays
+
+
+def discord_snippet(name, code):
+    """A ready-to-paste Discord message: name, code block, import link, repo."""
+    from urllib.parse import quote
+    name = name.replace("`", "'").replace("*", "")[:60]
+    return (f"**{name}** - Nullpoint crosshair\n```\n{code}\n```\n"
+            f"Import: {LINK_PREFIX}{quote(code, safe='')}\nhttps://github.com/yensobased1/nullpoint")
+
+
 def code_from_link(text):
     """Strictly extract a share code from nullpoint://import/<code>. Anything else -> None."""
     text = (text or "").strip().strip('"')

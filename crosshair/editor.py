@@ -503,10 +503,12 @@ class RecolorDialog(QDialog):
 
 
 class EditorTab(QWidget):
-    def __init__(self, on_apply, tr=lambda s: s):
-        """on_apply(path): use this PNG / GIF as the current profile's crosshair."""
+    def __init__(self, on_apply, tr=lambda s: s, on_library=None):
+        """on_apply(path): use this PNG / GIF as the current profile's crosshair.
+        on_library(name, cross, path): add to the library (with the duplicate check); default = plain add."""
         super().__init__()
         self.on_apply, self.tr = on_apply, tr
+        self.on_library = on_library or (lambda name, cross, path: library.add(name, cross, path))
         self.tool = "Pencil"
         self.color = QColor("#00FFFF")
         self.recent = []
@@ -866,5 +868,5 @@ class EditorTab(QWidget):
         if ok and name.strip() and self.write(self.auto_path()):
             cross = copy.deepcopy(DEFAULT_CROSSHAIR)
             cross["mode"] = "png"
-            library.add(name.strip(), cross, self.path)
+            self.on_library(name.strip(), cross, self.path)
             self.say(self.tr("Added to library") + f": {name.strip()}")

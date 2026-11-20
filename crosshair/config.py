@@ -107,6 +107,8 @@ DEFAULT_CONFIG = {
     # On = scale by screen height / 1080 to keep the look you had at 1080p.
     "valorant_scale_1080": False,
     "reduce_motion": False,  # no rainbow, GIF playback or fire-expand animation
+    "recent": [],  # last 5 applied crosshairs for the tray menu: {"name", "code", "image"}
+    "clipboard_watch": False,  # offer to import codes you copy (opt-in; clipboard text is never stored)
 }
 
 
@@ -170,6 +172,9 @@ def fix_profiles(cfg):
             if x or y:
                 cfg["game_offsets"][str(k).lower()[:100]] = [x, y]
     cfg["rules"] = clean_rules(cfg.get("rules"), cfg["profiles"])
+    rec = cfg["recent"] if isinstance(cfg["recent"], list) else []
+    cfg["recent"] = [{"name": str(r.get("name", ""))[:60], "code": str(r.get("code", ""))[:2048],
+                      "image": str(r.get("image", ""))[:400]} for r in rec if isinstance(r, dict)][:5]
     cfg["startup_delay"] = min(max(int(cfg["startup_delay"]), 0), 120)
     if cfg["hdr"].get("mode") not in ("Off", "Manual", "Auto"):
         cfg["hdr"]["mode"] = "Off"

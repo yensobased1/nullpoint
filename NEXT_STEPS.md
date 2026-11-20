@@ -1,14 +1,11 @@
 # Next steps
 
 ## v2.2 progress (stopped at the usage budget, 2026-11-19)
-Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools). 84 tests pass.
+Done and committed: phase 1 (visuals), phase 2 (editor), phase 3 (games, display, tools), phase 4 (library and sharing),
+plus: built-in game profiles removed (games keep centering; optional profile + offset per game). 98 tests pass.
 Nothing is pushed or released yet: v2.2 work lives in local commits on `main`.
 
 Left to do, in order (spec: "Feature Pack v2.2"):
-- Phase 4: duplicate detection (#58), PNG folder import (#59), recent crosshairs in tray (#64), drag and drop of
-  .nullpoint / images / text (#78), VALORANT code export + round-trip test (#65), CS2 console commands + share
-  code only if verified against 3 real codes (#66), GIF share / animated share card (#71), Discord snippet (#72),
-  clipboard watch opt-in (#73), starter preset packs (#76).
 - Phase 5: gallery grid / search / tags (#68, #69), gallery submit issue template (#70), OBS page themes (#74),
   Twitch !crosshair with keyring token (#75), web builder in docs/builder with shared test vectors (#77).
 - Phase 6: tooltip previews (#81), safe mode (#90), config/library auto-repair + rotating backups (#91).
@@ -18,7 +15,12 @@ Left to do, in order (spec: "Feature Pack v2.2"):
 - Phase 9: in-app updater with SHA-256 check (#96), beta channel (#97), signing step + docs/SIGNING.md (#98),
   Scoop + Chocolatey (#99), MSIX + docs/STORE.md (#100), release v2.2.0.
 
-Notes from phases 1-3:
+Notes from phases 1-4:
+- CS2 share codes (CSGO-...) are not generated: no real game-made codes were available to verify the encoder.
+  Export gives the console commands only.
+- Export warnings (VALORANT / CS2) are English only for now: they name the left-out feature in the text.
+- Upgrading removes the built-in game profiles (Fortnite, VALORANT, ...). Crosshairs that differed from Default are
+  saved to the library as '<name> (old profile)'.
 - Share codes are now XH4 (adds per-arm, dot shape, glow, fire expand). XH1-XH3 still load.
 - Pillow was added to requirements.txt (animated GIF export from the editor).
 - Sensitivity converter covers CS2, Apex, VALORANT and Overwatch 2. Fortnite and Roblox are left out: no reliable

@@ -1,6 +1,8 @@
 """Saved crosshairs in %APPDATA%\\Nullpoint\\library.json: [{"name", "crosshair", "image"}]."""
+import hashlib
 import json
 import os
+import re
 
 from config import CONFIG_DIR, clean_crosshair
 
@@ -33,6 +35,28 @@ def save(entries):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(entries, f, indent=2)
     os.replace(tmp, LIBRARY_PATH)
+
+
+def fingerprint(cross, image=""):
+    """Same fingerprint = the same crosshair. Opacities are compared to 0.1, so near-identical copies match too;
+    image crosshairs compare the image file's bytes."""
+    from share_code import export_code
+    code = re.sub(r"\d+\.\d+", lambda m: f"{float(m.group()):.1f}", export_code(cross))
+    digest = ""
+    if cross["mode"] == "png" and image:
+        try:
+            if os.path.getsize(image) <= 20 * 1024 * 1024:
+                with open(image, "rb") as f:
+                    digest = hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            digest = image
+    return code, digest
+
+
+def find_duplicate(entries, cross, image=""):
+    """Index of an entry that looks the same, or None."""
+    fp = fingerprint(cross, image)
+    return next((i for i, e in enumerate(entries) if fingerprint(e["crosshair"], e["image"]) == fp), None)
 
 
 def add(name, crosshair, image="", tags=None):

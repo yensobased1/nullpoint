@@ -21,6 +21,10 @@ import library
 import overlay
 import game_detect
 import installs
+import exporters
+import packfile
+import presets
+import safe_image
 import sharing
 import svg_export
 import cs2
@@ -192,7 +196,7 @@ class SettingsWindow(QWidget):
         self.tabs.addTab(self.crosshair_page, tr("Crosshair"))
         self.image_page = self.scroll(self._image_tab())
         self.tabs.addTab(self.image_page, tr("Image"))
-        self.editor = EditorTab(self.apply_image, tr)
+        self.editor = EditorTab(self.apply_image, tr, lambda n, c, p: self.add_to_library(n, c, p))
         self.tabs.addTab(self.editor, tr("Editor"))
         self.library_page = self._library_tab()
         self.tabs.addTab(self.library_page, tr("Library"))
@@ -816,9 +820,18 @@ class SettingsWindow(QWidget):
             b.clicked.connect(fn)
             row.addWidget(b)
         f.addRow(row)
-        hint = QLabel(tr("You can also drop a QR image onto this window."))
+        hint = QLabel(tr("You can also drop a QR image, a .nullpoint file, an image or a text file with a code onto this window."))
         hint.setObjectName("muted")
         f.addRow(hint)
+
+        row = QHBoxLayout()
+        for text, ic, fn in (("Export .nullpoint...", "copy_to", self._export_file),
+                             ("Copy for Discord", "presence", self._copy_discord),
+                             ("VALORANT code", "link", self._export_valorant), ("CS2 commands", "link", self._export_cs2)):
+            b = QPushButton(icon(ic), tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        f.addRow(row)
 
         g, f, reset = self.group(lay, "Import VALORANT / CS2 code", [], "link",
                                  "Paste a VALORANT code (0;P;...) e.g. from vcrdb.net, or a CS2 / CS:GO code (CSGO-...).")
@@ -899,7 +912,100 @@ class SettingsWindow(QWidget):
             b.clicked.connect(fn)
             row.addWidget(b)
         lay.addLayout(row)
+        row = QHBoxLayout()
+        for text, fn in (("Import PNG folder...", self._import_folder), ("Starter packs...", self._starter_packs)):
+            b = QPushButton(tr(text))
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch()
+        lay.addLayout(row)
         return page
+
+    # ---------- library: duplicates, folder import, starter packs ----------
+    def add_to_library(self, name, cross, image="", tags=None, ask=True):
+        """Add with a duplicate check. ask=False (batch imports) skips duplicates silently.
+        -> "added", "replaced" or "skipped"."""
+        entries = library.load()
+        dup = library.find_duplicate(entries, cross, image)
+        if dup is not None:
+            if not ask:
+                return "skipped"
+            box = QMessageBox(self)
+            box.setWindowTitle(tr("Already in your library"))
+            box.setTextFormat(Qt.PlainText)
+            box.setText(f"{tr('This crosshair looks the same as')} '{entries[dup]['name']}'.")
+            keep = box.addButton(tr("Keep both"), QMessageBox.AcceptRole)
+            repl = box.addButton(tr("Replace"), QMessageBox.DestructiveRole)
+            box.addButton(tr("Skip"), QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is repl:
+                entries[dup].update(name=name, crosshair=copy.deepcopy(cross), image=image)
+                library.save(entries)
+                self.load_library()
+                return "replaced"
+            if box.clickedButton() is not keep:
+                return "skipped"
+        entries.append({"name": name, "crosshair": copy.deepcopy(cross), "image": image, "tags": tags or [],
+                        "fav": False})
+        library.save(entries)
+        self.load_library()
+        return "added"
+
+    def _import_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, tr("Import PNG folder..."))
+        if not folder:
+            return
+        names = sorted(n for n in os.listdir(folder) if n.lower().endswith(".png"))
+        added, dups, bad = [], 0, []
+        for n in names[:200]:
+            path = os.path.join(folder, n)
+            try:
+                safe_image.load(path)  # size / bomb checks before we keep a copy
+                with open(path, "rb") as f:
+                    copy_path = packfile.store_image(f.read(), "png", library.CUSTOM_DIR)
+            except (OSError, ValueError):
+                bad.append(n)
+                continue
+            cross = copy.deepcopy(config.DEFAULT_CROSSHAIR)
+            cross["mode"] = "png"
+            if self.add_to_library(os.path.splitext(n)[0][:60], cross, copy_path, ["imported"], ask=False) == "skipped":
+                os.remove(copy_path)
+                dups += 1
+            else:
+                added.append(n)
+        msg = f"{tr('Imported')}: {len(added)}. {tr('Already in library')}: {dups}."
+        if len(names) > 200:
+            msg += " " + tr("Only the first 200 PNGs were read.")
+        if bad:
+            msg += f" {tr('Skipped (not a valid image)')}: {', '.join(bad[:10])}"
+        self.say(msg, bool(bad))
+
+    def _starter_packs(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Starter packs..."))
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(tr("Original crosshairs by style. Installing adds them to your library.")))
+        lst = QListWidget()
+        lst.setIconSize(QSize(48, 48))
+        for pack, items in presets.PACKS.items():
+            it = QListWidgetItem(self.thumbnail(items[0][1]), f"{tr(pack)}  ({len(items)})")
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Unchecked)
+            lst.addItem(it)
+        v.addWidget(lst)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText(tr("Install"))
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        added = 0
+        for i, (pack, items) in enumerate(presets.PACKS.items()):
+            if lst.item(i).checkState() == Qt.Checked:
+                for name, cross in items:
+                    added += self.add_to_library(name, cross, "", [pack, "starter"], ask=False) == "added"
+        self.say(f"{tr('Added to library')}: {added}")
 
     @staticmethod
     def thumbnail(cross, image=""):
@@ -1021,8 +1127,7 @@ class SettingsWindow(QWidget):
     def _lib_save(self):
         name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"), text=self.cfg["active_profile"])
         if ok and name.strip():
-            library.add(name.strip(), copy.deepcopy(self.target("cross")), self.profile()["png_path"])
-            self.load_library()
+            self.add_to_library(name.strip()[:60], self.target("cross"), self.profile()["png_path"])
 
     def _lib_apply(self):
         row = self._lib_selected()
@@ -1035,6 +1140,7 @@ class SettingsWindow(QWidget):
             self.profile()["png_path"] = e["image"]
         self.on_change("crosshair")
         self.refresh()
+        self.app.remember_recent(e["name"], e["crosshair"], e["image"])
         self.say(f"{tr('Applied')}: {e['name']} ({self.cfg['active_profile']})")
 
     def _lib_rename(self):
@@ -1110,6 +1216,7 @@ class SettingsWindow(QWidget):
         self.set_cross(copy.deepcopy(self.val_cross))
         self.on_change("crosshair")
         self.refresh()
+        self.app.remember_recent("VALORANT / CS2", self.val_cross)
         self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}")
 
     def _val_save(self):
@@ -1119,9 +1226,9 @@ class SettingsWindow(QWidget):
         name, ok = QInputDialog.getText(self, tr("Save to library"), tr("Name:"),
                                         text="CS2" if cs2.is_cs2(self.val_edit.toPlainText()) else "VALORANT")
         if ok and name.strip():
-            library.add(name.strip(), copy.deepcopy(self.val_cross),
-                        tags=["cs2"] if cs2.is_cs2(self.val_edit.toPlainText()) else ["valorant"])
-            self.say(tr("Added to library"))
+            if self.add_to_library(name.strip()[:60], self.val_cross, "",
+                                   ["cs2"] if cs2.is_cs2(self.val_edit.toPlainText()) else ["valorant"]) != "skipped":
+                self.say(tr("Added to library"))
 
     # ---------- share card / QR import / confirm ----------
     def _card(self):
@@ -1144,11 +1251,86 @@ class SettingsWindow(QWidget):
         except OSError as e:
             self.say(str(e), True)
 
+    def _gif_path(self):
+        cross, path = self.target("cross"), self.profile()["png_path"]
+        return path if cross["mode"] == "png" and path.lower().endswith(".gif") and os.path.isfile(path) else ""
+
     def _save_card(self):
-        path, _ = QFileDialog.getSaveFileName(self, tr("Save share card"), "nullpoint_crosshair.png", "PNG (*.png)")
-        if path:
-            ok = self._card().save(path, "PNG")
-            self.say(tr("Saved") + f": {os.path.basename(path)}" if ok else tr("Could not save the file."), not ok)
+        gif = self._gif_path()
+        name, filt = ("nullpoint_crosshair.gif", "GIF (*.gif)") if gif else ("nullpoint_crosshair.png", "PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Save share card"), name, filt)
+        if not path:
+            return
+        try:
+            if gif:  # animated crosshair -> animated card
+                from editor import write_gif
+                cross = self.target("cross")
+                frames, delays = sharing.share_card_frames(cross, export_code(cross), gif)
+                write_gif(path, frames, delays)
+                ok = True
+            else:
+                ok = self._card().save(path, "PNG")
+        except (OSError, ValueError, ImportError):
+            ok = False
+        self.say(tr("Saved") + f": {os.path.basename(path)}" if ok else tr("Could not save the file."), not ok)
+
+    def _export_file(self):
+        cross = self.target("cross")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Export .nullpoint..."), f"{self.cfg['active_profile']}.nullpoint",
+                                              "Nullpoint (*.nullpoint)")
+        if not path:
+            return
+        try:
+            data = packfile.dump(self.cfg["active_profile"], cross, self.profile()["png_path"])
+            with open(path, "wb") as fh:
+                fh.write(data)
+            self.say(tr("Saved") + f": {os.path.basename(path)}")
+        except (OSError, ValueError) as e:
+            self.say(f"{tr('Could not save the file.')} {e}", True)
+
+    def _copy_discord(self):
+        QGuiApplication.clipboard().setText(sharing.discord_snippet(self.cfg["active_profile"],
+                                                                    export_code(self.target("cross"))))
+        self.say(tr("Discord message copied: paste it in a chat."))
+
+    def _show_export(self, title, text, warnings):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        v = QVBoxLayout(dlg)
+        box = QPlainTextEdit(text)
+        box.setReadOnly(True)
+        box.setFixedHeight(90)
+        v.addWidget(box)
+        if warnings:
+            note = QLabel("\n".join(tr(w) for w in warnings))
+            note.setTextFormat(Qt.PlainText)
+            note.setWordWrap(True)
+            note.setStyleSheet(f"color: {theme.tokens['danger']};")
+            v.addWidget(note)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        copy_btn = bb.addButton(tr("Copy"), QDialogButtonBox.ActionRole)
+        copy_btn.clicked.connect(lambda: (QGuiApplication.clipboard().setText(text), self.say(tr("Copied."))))
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        dlg.resize(560, 220)
+        dlg.exec()
+
+    def _export_valorant(self):
+        try:
+            code, warn = exporters.to_valorant(self.target("cross"))
+        except ValueError as e:
+            self.say(tr(str(e)), True)
+            return
+        self._show_export(tr("VALORANT code"), code, warn)
+
+    def _export_cs2(self):
+        try:
+            text, warn = exporters.to_cs2_commands(self.target("cross"), self.screen_h())
+        except ValueError as e:
+            self.say(tr(str(e)), True)
+            return
+        self._show_export(tr("CS2 commands"), text, warn + [f"Sizes are for a {self.screen_h()} px tall screen "
+                                                            "(CS2 scales its crosshair with the resolution)."])
 
     def _copy_card(self):
         QGuiApplication.clipboard().setImage(self._card())
@@ -1175,23 +1357,77 @@ class SettingsWindow(QWidget):
             self.import_qr_image(img)
 
     def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls() or e.mimeData().hasImage():
+        md = e.mimeData()
+        if md.hasUrls() or md.hasImage() or md.hasText():
             e.acceptProposedAction()
 
     def dropEvent(self, e):
+        """QR image, .nullpoint file, PNG/GIF/SVG image or text with a code. Always ends in a confirm preview."""
         md = e.mimeData()
-        if md.hasImage():
-            self.import_qr_image(QImage(md.imageData()))
-        elif md.hasUrls() and md.urls()[0].isLocalFile():
-            self.import_qr_image(QImage(md.urls()[0].toLocalFile()))
+        if md.hasUrls() and md.urls()[0].isLocalFile():
+            self.import_file(md.urls()[0].toLocalFile())
+        elif md.hasImage():
+            try:
+                self.import_qr_image(safe_image.checked(QImage(md.imageData())))
+            except safe_image.ImageError as err:
+                self.say(tr(str(err)), True)
+        elif md.hasText():
+            self.confirm_import(md.text()[:4096].strip(), tr("Dropped text"))
 
-    def confirm_import(self, code, source=""):
-        """Preview + 'Import this crosshair?'. Nothing changes unless the user picks an action."""
+    def import_file(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        try:
+            if ext == ".nullpoint":
+                if os.path.getsize(path) > packfile.MAX_FILE:
+                    raise packfile.PackError("That .nullpoint file is too big (max 5 MB).")
+                with open(path, "rb") as f:
+                    name, cross, img, img_ext = packfile.load(f.read())
+                self.confirm_import(export_code(cross), os.path.basename(path), img, img_ext, name)
+            elif ext in (".png", ".gif", ".svg", ".jpg", ".jpeg", ".bmp"):
+                img = safe_image.load(path)
+                code = None
+                if ext != ".svg":
+                    try:
+                        code = sharing.decode_qr(img)
+                    except ShareCodeError:
+                        pass
+                if code:
+                    self.confirm_import(code, tr("From a QR image"))
+                elif ext in (".png", ".gif", ".svg"):  # no QR: use the picture itself as the crosshair
+                    with open(path, "rb") as f:
+                        raw = f.read()
+                    cross = copy.deepcopy(self.target("cross"))
+                    cross["mode"] = "png"
+                    cross["png"].update(scale=100, rot=0)
+                    self.confirm_import(export_code(cross), os.path.basename(path), raw, ext[1:],
+                                        os.path.splitext(os.path.basename(path))[0])
+                else:
+                    self.say(tr("No crosshair code found in that image."), True)
+            elif ext in (".txt", ".text", ""):
+                if os.path.getsize(path) > 64 * 1024:
+                    raise ValueError("That text file is too big to hold a crosshair code.")
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    self.confirm_import(f.read().strip(), os.path.basename(path))
+            else:
+                self.say(tr("Drop a .nullpoint file, an image or a text file with a code."), True)
+        except (OSError, ValueError) as err:
+            self.say(f"{tr('Import failed')}: {tr(str(err))}", True)
+
+    def confirm_import(self, code, source="", image=None, image_ext="", name=None):
+        """Preview + 'Import this crosshair?'. Nothing changes unless the user picks an action.
+        image: bytes of the crosshair's picture (from a .nullpoint file or a dropped image), saved only on confirm."""
         try:
             cross, kind = valorant.import_any(code, self.val_scale(), self.screen_h())
         except ShareCodeError as e:
             self.say(f"{tr('Invalid code')}: {e}", True)
             return
+        pm = None
+        if image is not None:
+            try:
+                pm = overlay.transform_image(safe_image.load_bytes(image), cross["png"])
+            except safe_image.ImageError as e:
+                self.say(tr(str(e)), True)
+                return
         if kind in ("valorant", "cs2"):
             source = (source + "  -  " if source else "") + tr(
                 "Converted from VALORANT" if kind == "valorant" else "Converted from CS2")
@@ -1201,13 +1437,16 @@ class SettingsWindow(QWidget):
         dlg.setWindowTitle(tr("Import this crosshair?"))
         dlg.setWindowIcon(icon("link"))
         v = QVBoxLayout(dlg)
-        if source:
-            v.addWidget(QLabel(source))
-        c = overlay.extent(cross)
-        img = render_image(lambda p, cc: overlay.render(p, cross, cc), c)
+        for t in filter(None, (name, source)):
+            lab = QLabel(t)  # outside text: never rendered as rich text
+            lab.setTextFormat(Qt.PlainText)
+            v.addWidget(lab)
+        c = overlay.extent(cross, pm)
+        img = render_image(lambda p, cc: overlay.render(p, cross, cc, pm), c)
         view = PixelView(lambda: (img, c), zoom=4, bg="Dark", size=220)
         v.addWidget(view, 0, Qt.AlignCenter)
         text = QLabel(code)
+        text.setTextFormat(Qt.PlainText)
         text.setWordWrap(True)
         text.setTextInteractionFlags(Qt.TextSelectableByMouse)
         v.addWidget(text)
@@ -1220,14 +1459,25 @@ class SettingsWindow(QWidget):
         v.addWidget(bb)
         dlg.exec()
         b = choice.get("b")
+        if b not in (apply_btn, lib_btn):
+            return
+        path = ""
+        if image is not None:
+            try:
+                path = packfile.store_image(image, image_ext, library.CUSTOM_DIR)
+            except OSError as e:
+                self.say(str(e), True)
+                return
         if b is apply_btn:
             self.record()
             self.set_cross(cross)
+            if path:
+                self.profile()["png_path"] = path
             self.on_change("crosshair")
             self.refresh()
+            self.app.remember_recent(name or tr("Imported"), cross, path)
             self.say(f"{tr('Code applied to profile')}: {self.cfg['active_profile']}")
-        elif b is lib_btn:
-            library.add(tr("Imported"), cross)
+        elif self.add_to_library((name or tr("Imported"))[:60], cross, path) != "skipped":
             self.say(tr("Added to library"))
 
     # ---------- gallery ----------
@@ -1497,6 +1747,11 @@ class SettingsWindow(QWidget):
         row.addWidget(lp, 1)
         f.addRow(tr("Low-power mode"), row)
         f.addRow(QLabel(tr("Auto = on battery: slower game detection, rainbow / GIF animation paused.")))
+        cw = QCheckBox(tr("Offer to import crosshair codes I copy"))
+        cw.setChecked(self.cfg["clipboard_watch"])
+        cw.setToolTip(tr("Off by default. Shows a small notification; never imports by itself and never saves what you copy."))
+        cw.toggled.connect(lambda v: self._set_cfg("clipboard_watch", v))
+        f.addRow(cw)
         rm = QCheckBox(tr("Reduce motion"))
         rm.setChecked(self.cfg["reduce_motion"])
         rm.setToolTip(tr("Turns off rainbow, GIF playback (first frame only) and the fire expand animation."))

@@ -14,7 +14,7 @@ import copy
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QTimer, Qt, QUrl
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 import config
@@ -30,7 +30,8 @@ import tools
 import sharing
 from presence import Presence
 from stream_server import StreamServer
-from share_code import export_code
+from share_code import export_code, import_code
+import valorant
 from settings_ui import SettingsWindow, app_icon, asset, migrate_startup, screens, startup_command
 from ui import i18n, theme
 from ui.i18n import tr
@@ -118,8 +119,9 @@ class App:
         self.build_menu()
         self.tray.activated.connect(
             lambda r: self.open_settings() if r == QSystemTrayIcon.DoubleClick else None)
-        self.tray.messageClicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl(self.update_url)) if self.update_url else None)
+        self.tray_action = None  # what clicking the current tray message does
+        self.tray.messageClicked.connect(lambda: self.tray_action() if self.tray_action else None)
+        QGuiApplication.clipboard().dataChanged.connect(self.on_clipboard)
         self.tray.show()
 
         self.stream = StreamServer()
@@ -196,14 +198,61 @@ class App:
         menu.addAction(tr("Alignment test"), self.alignment_test)
         self.profile_menu = menu.addMenu(tr("Switch Profile"))
         self.profile_menu.aboutToShow.connect(self.fill_profile_menu)
+        self.recent_menu = menu.addMenu(tr("Recent crosshairs"))
+        self.recent_menu.aboutToShow.connect(self.fill_recent_menu)
         menu.addSeparator()
         menu.addAction(tr("Exit"), self.exit)
         menu.setLayoutDirection(self.qt.layoutDirection())
         self.tray.setContextMenu(menu)
         self.menu = menu
 
-    def notify(self, text, icon=QSystemTrayIcon.Information, ms=5000):
+    def notify(self, text, icon=QSystemTrayIcon.Information, ms=5000, action=None):
+        self.tray_action = action
         self.tray.showMessage("Nullpoint", text, icon, ms)
+
+    def on_clipboard(self):
+        """Opt-in: a copied Nullpoint / VALORANT / CS2 code -> 'Import this crosshair?'. Never auto-imports.
+        The clipboard text is only checked here and kept for the click; it's never logged or saved."""
+        cb = QGuiApplication.clipboard()
+        if not self.cfg["clipboard_watch"] or cb.ownsClipboard():
+            return
+        text = cb.text().strip()
+        if not text or len(text) > 2048 or not re.match(r"(XH\d;|0;|CSGO-)", text, re.IGNORECASE):
+            return
+        try:
+            valorant.import_any(text)
+        except ValueError:
+            return
+        self.notify(tr("Import this crosshair? Click to preview the code you copied."), ms=6000,
+                    action=lambda c=text: (self.open_settings(), self.settings.confirm_import(c, tr("From the clipboard"))))
+
+    def remember_recent(self, name, cross, image=""):
+        """Tray > Recent crosshairs: the last 5 applied (newest first, no repeats)."""
+        code = export_code(cross)
+        rec = [r for r in self.cfg["recent"] if r["code"] != code or r["image"] != image]
+        self.cfg["recent"] = [{"name": str(name)[:60], "code": code, "image": image}] + rec[:4]
+        self.save_timer.start()
+
+    def fill_recent_menu(self):
+        self.recent_menu.clear()
+        for r in self.cfg["recent"]:
+            self.recent_menu.addAction(r["name"] or tr("Crosshair"), lambda r=r: self.apply_recent(r))
+        if not self.cfg["recent"]:
+            self.recent_menu.addAction(tr("(none yet)")).setEnabled(False)
+
+    def apply_recent(self, r):
+        try:
+            cross = import_code(r["code"])
+        except ValueError:
+            return
+        p = self.profile()
+        p["crosshair"] = cross
+        if r["image"] and os.path.isfile(r["image"]):
+            p["png_path"] = r["image"]
+        self.on_change("crosshair")
+        self.remember_recent(r["name"], cross, r["image"])
+        if self.settings:
+            self.settings.refresh()
 
     # ---------- state ----------
     def profile(self):
@@ -402,7 +451,8 @@ class App:
 
     def on_update(self, version, url):
         self.update_url = url
-        self.notify(f"{tr('A new version is available')}: {version}. {tr('Click to open the release page.')}")
+        self.notify(f"{tr('A new version is available')}: {version}. {tr('Click to open the release page.')}",
+                    action=lambda: QDesktopServices.openUrl(QUrl(url)))
 
     def alignment_test(self):
         if self.align:
@@ -563,6 +613,7 @@ class App:
         if e["image"]:
             p["png_path"] = e["image"]
         self.apply()
+        self.remember_recent(e["name"], e["crosshair"], e["image"])
         self.save_timer.start()
         if self.settings:
             self.settings.refresh()
