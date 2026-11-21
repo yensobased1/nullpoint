@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$url = 'https://github.com/yensobased1/nullpoint/releases/download/v2.2.2/Nullpoint.exe'
-$checksum = 'fd71aca821cabbcfdede87c43c70e10198f71f7f10e72f49cd27e3e507d2390a'
+$url = 'https://github.com/yensobased1/nullpoint/releases/download/v2.2.3/Nullpoint.exe'
+$checksum = '8a720342a0a3a8603a8f984e6d5e7cc4938b217d8353c7c7ade74360388e2e56'
 
 # Portable exe: downloaded and checked against the SHA-256 above, then shimmed as a GUI app.
 Get-ChocolateyWebFile -PackageName 'nullpoint' -FileFullPath (Join-Path $toolsDir 'Nullpoint.exe') `
