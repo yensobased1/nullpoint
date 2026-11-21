@@ -2369,11 +2369,20 @@ class SettingsWindow(QWidget):
         return name
 
     def _selected_game(self):
+        """The selected row's game; with no selection, ask which one (last played game first)."""
         row = self.games_table.currentRow()
-        if row < 0:
-            self.say(tr("Pick a game in the list first."), True)
+        if row >= 0:
+            return self.games_table.item(row, 0).text()
+        games = sorted(self.cfg["games"])
+        if not games:
+            self.say(tr("Add a game first."), True)
             return None
-        return self.games_table.item(row, 0).text()
+        last = (getattr(self.app, "last_external", None) or ("",))[0]
+        if last in games:
+            games.remove(last)
+            games.insert(0, last)
+        name, ok = QInputDialog.getItem(self, tr("Game"), tr("Which game?"), games, 0, False)
+        return name if ok else None
 
     def _game_profile(self):
         exe = self._selected_game()
