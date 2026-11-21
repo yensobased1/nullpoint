@@ -72,8 +72,9 @@ BUILTIN_GAMES = {
     "javaw.exe": "Minecraft",
     "minecraft.windows.exe": "Minecraft",
     "cod.exe": "Call of Duty",
+    "project8.exe": "Deadlock",
 }
-GAMES_VERSION = 3  # bump when BUILTIN_GAMES grows so old configs pick up new games
+GAMES_VERSION = 4  # bump when BUILTIN_GAMES grows so old configs pick up new games
 MAX_GAMES = 200
 
 DEFAULT_CONFIG = {
