@@ -254,9 +254,12 @@ class SettingsWindow(QWidget):
 
     def scroll(self, page):
         self.index_page(page, self.tabs.count())  # the page is added as the next tab
+        for lab in page.findChildren(QLabel):  # long notes wrap instead of making the page wider than the window
+            if len(lab.text()) > 40 and not lab.pixmap():
+                lab.setWordWrap(True)
         sc = QScrollArea()
         sc.setWidgetResizable(True)
-        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         sc.setWidget(page)
         return sc
 
@@ -858,15 +861,15 @@ class SettingsWindow(QWidget):
         b.clicked.connect(self._show_qr)
         self.share_row.addWidget(b)
         f.addRow(self.share_row)
-        row = QHBoxLayout()
-        for text, ic, fn in (("Save share card...", "share_card", self._save_card),
+        row = QGridLayout()  # 3 per line: one long row made the tab wider than the window
+        for i, (text, ic, fn) in enumerate((("Save share card...", "share_card", self._save_card),
                              ("Copy share card", "share_card", self._copy_card),
                              ("Import from image...", "qr_import", self._import_image),
                              ("Paste image", "qr_import", self._paste_image),
-                             ("Export SVG...", "shapes", self._export_svg)):
+                             ("Export SVG...", "shapes", self._export_svg))):
             b = QPushButton(icon(ic), tr(text))
             b.clicked.connect(fn)
-            row.addWidget(b)
+            row.addWidget(b, i // 3, i % 3)
         f.addRow(row)
         hint = QLabel(tr("You can also drop a QR image, a .nullpoint file, an image or a text file with a code onto this window."))
         hint.setObjectName("muted")
@@ -1822,7 +1825,7 @@ class SettingsWindow(QWidget):
         port.setValue(int(sp["port"]))
         url = QLineEdit()
         url.setReadOnly(True)
-        url.setMinimumWidth(260)
+        url.setMinimumWidth(120)
         url.setToolTip(tr("Keep this link private: anyone with it on this PC can see the page."))
         show_url = lambda: url.setText(f"http://127.0.0.1:{sp['port']}/{sp['token']}/")
         show_url()
@@ -1855,6 +1858,9 @@ class SettingsWindow(QWidget):
         size.editingFinished.connect(lambda: (sp.update(size=size.value()), self.on_change("sharing")))
         for w in (theme_box, pos_box, size):
             row.addWidget(w)
+        row.addStretch()
+        f.addRow(tr("Page style"), row)
+        row = QHBoxLayout()
         for key, label in (("code", "Code"), ("qr", "QR"), ("name", "Name")):
             cb = QCheckBox(tr(label))
             cb.setChecked(sp[key])
@@ -1872,7 +1878,7 @@ class SettingsWindow(QWidget):
         new.clicked.connect(new_link)
         row.addWidget(new)
         row.addStretch()
-        f.addRow(tr("Page style"), row)
+        f.addRow("", row)
 
         tw = self.cfg["twitch"]
         row = QHBoxLayout()
@@ -1920,9 +1926,14 @@ class SettingsWindow(QWidget):
         cool.editingFinished.connect(tw_changed)
         token_btn.clicked.connect(set_token)
         forget.clicked.connect(lambda: (credman.delete("twitch"), tw_on.setChecked(False), self.say(tr("Token removed."))))
-        for w in (tw_on, chan, cool, token_btn, forget):
+        for w in (tw_on, chan, cool):
             row.addWidget(w)
         f.addRow(tr("Twitch chat"), row)
+        row = QHBoxLayout()
+        for w in (token_btn, forget):
+            row.addWidget(w)
+        row.addStretch()
+        f.addRow("", row)
         note = QLabel(tr("Off by default. Viewers type !crosshair in your chat and Nullpoint replies with your code. "
                          "See NEXT_STEPS.md for how to make a token."))
         note.setObjectName("muted")
