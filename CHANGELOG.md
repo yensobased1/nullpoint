@@ -1,7 +1,7 @@
 # Changelog
 
 ## v2.2.3
-- **Deadlock** is now a built-in game (`project8.exe`): centered on its window, shown only in games, lobby hiding.
+- **Deadlock** is now a built-in game: centered on its window, shown only in games, lobby hiding.
 - Rainbow / GIF previews in Settings now animate even when no game is focused.
 - The Color section says when Rainbow is paused by Reduce motion or low-power mode.
 
