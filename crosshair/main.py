@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 import config
 import game_detect
 import fullscreen
+import gamelog
 import hdr
 from overlay import Overlay
 from alignment import AlignmentWindow
@@ -115,6 +116,8 @@ class App:
         self.held_hidden = False  # hide-while-held key is down
         self.menu_hidden = False  # a game is focused and shows its mouse cursor (lobby / menu)
         self._menu_since = None
+        self.lobby_log = gamelog.LobbyLog()
+        self.log_lobby = False  # the game's own log says lobby (games that hide the cursor in menus too)
         self.game_res = None  # "2560x1440" of the focused game window, picks a resolution variant
         self.hdr_mult = 1.0
         self.nudging = False
@@ -647,6 +650,8 @@ class App:
             self.game_res = res
             if self.profile()["variants"]:
                 self.apply()
+        self.log_lobby = bool(self.cfg["hide_in_menus"] and self.game_active
+                              and self.lobby_log.in_lobby(exe, game_detect.process_path(pid)))
         if self.game_active:
             center = game_detect.client_center(hwnd)
             self.check_fullscreen(hwnd, pid, exe)
@@ -741,7 +746,7 @@ class App:
     def poll_menu(self):
         """Hide in lobby / menus: the game shows the mouse cursor there and hides it while you aim.
         The state must hold for MENU_DELAY so a quick flicker (alt-tab, a scoreboard) doesn't blink the crosshair."""
-        menu = self.cfg["hide_in_menus"] and self.game_active and game_detect.cursor_visible()
+        menu = self.cfg["hide_in_menus"] and self.game_active and (self.log_lobby or game_detect.cursor_visible())
         if menu == self.menu_hidden:
             self._menu_since = None
             return

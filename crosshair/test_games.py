@@ -158,7 +158,7 @@ class LobbyTests(unittest.TestCase):
         from unittest import mock
         import main
         app = types.SimpleNamespace(cfg={"hide_in_menus": True}, game_active=True, menu_hidden=False,
-                                    _menu_since=None, placed=0)
+                                    _menu_since=None, placed=0, log_lobby=False)
         app.place = lambda: setattr(app, "placed", app.placed + 1)
         poll = lambda: main.App.poll_menu(app)
         clock = [100.0]
@@ -174,6 +174,13 @@ class LobbyTests(unittest.TestCase):
             clock[0] += main.MENU_DELAY
             poll()
             self.assertFalse(app.menu_hidden)
+            with mock.patch.object(game_detect, "cursor_visible", lambda: False):
+                app.game_active, app.log_lobby = True, True  # Deadlock: cursor hidden, but its log says hideout
+                poll()
+                clock[0] += main.MENU_DELAY
+                poll()
+                self.assertTrue(app.menu_hidden)
+                app.log_lobby = False
             app.game_active, app.cfg["hide_in_menus"] = True, False  # setting off: never hides
             for _ in range(3):
                 clock[0] += 1
