@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.2.4
+- **Deadlock**: the game is now recognised (its process is `deadlock.exe`), and **Hide in lobby and menus** works
+  in the hideout: Deadlock hides the mouse cursor everywhere, so Nullpoint reads the map name from the game's own
+  `console.log` instead (text file only, nothing from the game's memory or screen).
+- Settings tabs no longer get wider than the window (text was cut off at the edges).
+- Games tab: Profile... / Offset... ask which game when none is selected.
+
 ## v2.2.3
 - **Deadlock** is now a built-in game: centered on its window, shown only in games, lobby hiding.
 - Rainbow / GIF previews in Settings now animate even when no game is focused.
