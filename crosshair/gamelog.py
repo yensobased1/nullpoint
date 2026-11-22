@@ -1,15 +1,17 @@
 """Lobby detection from a game's own text log, for games that also hide the Windows cursor in menus.
 
 Deadlock writes game\\citadel\\console.log; every map change is a line like  [Client] Map: "dl_hideout".
-dl_hideout (the hideout lobby), "<empty>" (start screen) and "start" count as lobby; any other map is a match.
+Only "<empty>" (start screen / loading) counts as lobby: the hideout is a playable map (you walk and shoot in it), and
+Deadlock keeps the cursor hidden and locked to the center in its menus too, so menus over the hideout can't be told
+apart from playing without reading the game's screen or memory, which Nullpoint never does.
 Only this plain text file is read, new bytes only and size-capped: nothing from the game's memory or screen.
 """
 import os
 import re
 
 MAP_RE = re.compile(rb'\[Client\] Map: "([^"\r\n]{0,64})"')
-# shortcut: lobby map names seen on one PC (2026-11), add more here if Deadlock adds lobby maps
-GAMES = {"deadlock.exe": (os.path.join("..", "..", "citadel", "console.log"), {b"dl_hideout", b"<empty>", b"start"})}
+# shortcut: map names seen on one PC (2026-11)
+GAMES = {"deadlock.exe": (os.path.join("..", "..", "citadel", "console.log"), {b"<empty>"})}
 MAX_READ = 1024 * 1024  # bytes per check
 
 
