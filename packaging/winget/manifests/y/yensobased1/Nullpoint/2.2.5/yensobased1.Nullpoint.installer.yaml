@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: yensobased1.Nullpoint
+PackageVersion: 2.2.5
+InstallerLocale: en-US
+MinimumOSVersion: 10.0.17763.0
+InstallerType: inno
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+Protocols:
+- nullpoint
+ReleaseDate: 2026-11-19
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/yensobased1/nullpoint/releases/download/v2.2.5/Nullpoint-Setup-2.2.5.exe
+  InstallerSha256: B810125C6A82A085959C66EA1BDEF89B2A4E42E2EDD89F6EB703C127D7A5AA6D
+ManifestType: installer
+ManifestVersion: 1.6.0

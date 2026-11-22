@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.2.5
+- **Deadlock**: the crosshair now shows in the hideout (it's a playable map) and in matches; it hides only on the start
+  / loading screen. Deadlock's menus can't be detected without reading the game's screen or memory (which Nullpoint
+  never does): use **Hide while held** or **F8** for menus.
+
 ## v2.2.4
 - **Deadlock**: the game is now recognised (its process is `deadlock.exe`), and **Hide in lobby and menus** works
   in the hideout: Deadlock hides the mouse cursor everywhere, so Nullpoint reads the map name from the game's own
